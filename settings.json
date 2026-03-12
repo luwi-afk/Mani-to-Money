@@ -1,0 +1,5 @@
+{
+  "max_price_per_kg": 480.0,
+  "history_auto_purge": false,
+  "history_keep_days": 30
+}
