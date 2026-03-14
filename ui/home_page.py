@@ -115,5 +115,5 @@ class HomePage(QWidget):
         logos_layout.addWidget(main_logo)
         logos_layout.addWidget(right_logo)
         layout.addLayout(logos_layout)
-        layout.addSpacing(125)
+        layout.addSpacing(25)
         layout.addWidget(title)

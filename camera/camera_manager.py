@@ -1,5 +1,7 @@
 import cv2
 import sys
+import platform
+import time
 
 _camera = None
 
@@ -11,7 +13,7 @@ def init_camera(index=0, width=1280, height=720):
     """
     global _camera
 
-    # If already opened, just confirm it's still open
+    # If already opened and working, just return True
     if _camera is not None and _camera.isOpened():
         return True
 
@@ -23,29 +25,53 @@ def init_camera(index=0, width=1280, height=720):
             pass
         _camera = None
 
+    # Determine correct backend based on platform
+    is_raspberry_pi = platform.system() == 'Linux' and platform.machine().startswith(('arm', 'aarch64'))
 
-    if sys.platform.startswith("win"):
-        cam = cv2.VideoCapture(index, cv2.CAP_DSHOW)
-    else:
+    try:
+        if is_raspberry_pi:
+            # Raspberry Pi - use V4L2 backend
+            cam = cv2.VideoCapture(index, cv2.CAP_V4L2)
+        elif sys.platform.startswith("win"):
+            # Windows - use DSHOW backend
+            cam = cv2.VideoCapture(index, cv2.CAP_DSHOW)
+        else:
+            # Other platforms - use default
+            cam = cv2.VideoCapture(index)
+    except Exception:
+        # Fallback to default
         cam = cv2.VideoCapture(index)
 
-    if not cam.isOpened():
-        cam.release()
+    if not cam or not cam.isOpened():
+        if cam:
+            cam.release()
         return False
 
+    # Try to set properties
     cam.set(cv2.CAP_PROP_FRAME_WIDTH, int(width))
     cam.set(cv2.CAP_PROP_FRAME_HEIGHT, int(height))
     cam.set(cv2.CAP_PROP_FPS, 30)
+
+    # Give camera time to adjust
+    time.sleep(0.5)
+
+    # Test read a frame to ensure camera is working
+    ret, frame = cam.read()
+    if not ret or frame is None:
+        cam.release()
+        return False
 
     _camera = cam
     return True
 
 
 def get_camera():
+    """Returns the global camera instance"""
     return _camera
 
 
 def release_camera():
+    """Releases the global camera instance"""
     global _camera
     if _camera is not None:
         try:
@@ -53,3 +79,10 @@ def release_camera():
         except Exception:
             pass
     _camera = None
+
+
+def restart_camera(index=0, width=1280, height=720):
+    """Convenience function to restart camera"""
+    release_camera()
+    time.sleep(0.5)
+    return init_camera(index, width)
