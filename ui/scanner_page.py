@@ -180,7 +180,7 @@ class ScannerPage(QWidget):
         self.infer_every = 6
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(5, 15, 5, 15)
+        layout.setContentsMargins(5,5,5,5)
         layout.setSpacing(10)
 
         self.instruction = QLabel("Position Tray then Click Scan")
@@ -199,7 +199,7 @@ class ScannerPage(QWidget):
         layout.addWidget(self.instruction)
 
         self.video = QLabel()
-        self.video.setMinimumSize(750, 450) #feedback video size
+        self.video.setMinimumSize(720, 420) #feedback video size
         self.video.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.video.setAlignment(Qt.AlignCenter)
         self.video.setStyleSheet("background: transparent;")
