@@ -19,7 +19,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("Mani-to-Money")
         self.setWindowIcon(QIcon("assets/mani.png"))
-        self.setFixedSize(1400, 800)
+        self.setFixedSize(1024, 600)
         self.setStyleSheet("background:#E6D3A3;")
 
         central = QWidget()
