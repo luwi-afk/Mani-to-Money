@@ -199,7 +199,7 @@ class ScannerPage(QWidget):
         layout.addWidget(self.instruction)
 
         self.video = QLabel()
-        self.video.setMinimumSize(720, 420) #feedback video size
+        self.video.setMinimumSize(658, 370) #feedback video size
         self.video.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.video.setAlignment(Qt.AlignCenter)
         self.video.setStyleSheet("background: transparent;")
