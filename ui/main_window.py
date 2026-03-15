@@ -1,3 +1,4 @@
+#ui/main_window.py
 from PyQt5.QtCore import Qt, QSize,QTimer
 from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QPushButton, QLabel,
@@ -145,6 +146,9 @@ class MainWindow(QMainWindow):
         self.history = HistoryPage()
         self.settings = SettingsPage()
 
+        # Connect settings page signal to handle camera restart
+        self.settings.settings_changed.connect(self.on_settings_changed)
+
         self.stack.addWidget(self.home)     # index 0
         self.stack.addWidget(self.scanner)  # index 1
         self.stack.addWidget(self.history)  # index 2
@@ -237,3 +241,9 @@ class MainWindow(QMainWindow):
         finally:
             release_camera()
         event.accept()
+
+    def on_settings_changed(self):
+        """Handle settings changes - restart camera if on scanner page"""
+        if self.stack.currentIndex() == 1:
+            self.scanner.stop_camera()
+            QTimer.singleShot(500, lambda: self.scanner.start_camera())

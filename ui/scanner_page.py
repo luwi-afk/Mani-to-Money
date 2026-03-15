@@ -1,10 +1,11 @@
+#ui/scanner_page.py
 import os
 import numpy as np
 from datetime import datetime
 
 import cv2
 from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal
-from PyQt5.QtGui import QPixmap, QImage
+from PyQt5.QtGui import QPixmap, QImage, QPainter
 from PyQt5.QtWidgets import (
     QWidget, QLabel, QPushButton, QVBoxLayout, QHBoxLayout,
     QMessageBox, QSizePolicy
@@ -205,7 +206,7 @@ class ScannerPage(QWidget):
         layout.addWidget(self.instruction)
 
         self.video = QLabel()
-        self.video.setMinimumSize(747, 420)
+        self.video.setMinimumSize(765, 420) #cam feed size
         self.video.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.video.setAlignment(Qt.AlignCenter)
         self.video.setStyleSheet("background: transparent;")
@@ -240,35 +241,42 @@ class ScannerPage(QWidget):
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.update_frame)
 
-    # ---- Page lifecycle ----
     def start_camera(self):
-        """Initialize and start camera - SIMPLIFIED without autofocus regions"""
+        """Initialize and start camera"""
+        try:
+            # Read resolution and FPS from settings (will be used on all platforms,
+            # but on RPi picamera2 will override with full settings anyway)
+            from utils.app_settings import get_camera_resolution, get_camera_fps
+            width, height = get_camera_resolution()
+            fps = get_camera_fps()
 
-        if not init_camera(use_picamera=True):
-            QMessageBox.critical(self, "Camera Error", "Camera not available.")
+            if not init_camera(width=width, height=height, fps=fps):
+                QMessageBox.critical(self, "Camera Error", "Camera not available.")
+                return False
+
+            self.camera = get_camera()
+            if not self.camera:
+                QMessageBox.critical(self, "Camera Error", "Camera not available.")
+                return False
+
+            self._using_module3 = is_using_picamera()
+            self.last_frame_bgr = None
+            self.last_result = None
+            self._frame_i = 0
+            self._failed_reads = 0
+
+            self.scan.setEnabled(True)
+            self.scan.setText("Scan")
+            self.set_instruction("Position Tray then Click Scan", scanning=False)
+
+            if not self.timer.isActive():
+                self.timer.start(30)
+
+            return True
+
+        except Exception as e:
+            print(f"Camera error: {e}")
             return False
-
-        self.camera = get_camera()
-        if not self.camera:
-            QMessageBox.critical(self, "Camera Error", "Camera not available.")
-            return False
-
-        # Just check if using Module 3 (for info only, no complex config)
-        self._using_module3 = is_using_picamera()
-
-        self.last_frame_bgr = None
-        self.last_result = None
-        self._frame_i = 0
-        self._failed_reads = 0
-
-        self.scan.setEnabled(True)
-        self.scan.setText("Scan")
-        self.set_instruction("Position Tray then Click Scan", scanning=False)
-
-        if not self.timer.isActive():
-            self.timer.start(30)
-
-        return True
 
     def stop_camera(self):
         """Stop camera and cleanup"""
@@ -378,11 +386,10 @@ class ScannerPage(QWidget):
             ok, frame = read_camera()
             if not ok or frame is None:
                 self._failed_reads += 1
-                if self._failed_reads > 10:  # After 10 failed reads, show no signal
+                if self._failed_reads > 10:
                     self._show_no_signal()
                 return
 
-            # Reset failed counter on success
             self._failed_reads = 0
 
             # Flip horizontally for mirror effect
@@ -412,22 +419,30 @@ class ScannerPage(QWidget):
             self._show_frame(annotated)
 
         except Exception:
-            # Silently fail on unexpected errors
             pass
 
     def _show_frame(self, frame_bgr):
-        """Convert and display frame in QLabel"""
         try:
             rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
             h, w, ch = rgb.shape
             bytes_per_line = ch * w
             qimg = QImage(rgb.data, w, h, bytes_per_line, QImage.Format_RGB888).copy()
-            pix = QPixmap.fromImage(qimg).scaled(
-                self.video.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation
-            )
-            self.video.setPixmap(pix)
-        except Exception:
-            pass
+            pix = QPixmap.fromImage(qimg)
+
+            label_size = self.video.size()
+            scaled_pix = pix.scaled(label_size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+
+            final_pix = QPixmap(label_size)
+            final_pix.fill(Qt.transparent)
+            painter = QPainter(final_pix)
+            x = (label_size.width() - scaled_pix.width()) // 2
+            y = (label_size.height() - scaled_pix.height()) // 2
+            painter.drawPixmap(x, y, scaled_pix)
+            painter.end()
+
+            self.video.setPixmap(final_pix)
+        except Exception as e:
+            print(f"Display error: {e}")
 
     # ---- Scan button ----
     def on_scan_clicked(self):

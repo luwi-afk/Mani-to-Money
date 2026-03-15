@@ -1,17 +1,18 @@
-# ui/settings_page.py
+import sys
+import platform
 from PyQt5.QtWidgets import (
     QWidget, QLabel, QVBoxLayout, QHBoxLayout,
     QPushButton, QMessageBox, QCheckBox,
     QDialog, QGridLayout, QLineEdit, QFrame,
-    QScrollArea
+    QScrollArea, QComboBox, QSlider, QTabWidget
 )
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, pyqtSignal
 
 from utils.app_settings import (
     get_max_price_per_kg, set_max_price_per_kg,
     get_history_auto_purge, set_history_auto_purge,
     get_history_keep_days, set_history_keep_days,
-    validate_passcode
+    validate_passcode, get_camera_settings, update_camera_settings
 )
 
 
@@ -169,38 +170,38 @@ class SettingsCard(QFrame):
         self.setStyleSheet("""
             SettingsCard {
                 background-color: #ffffff;
-                border-radius: 15px;
+                border-radius: 10px;
                 border: 1px solid #e0e0e0;
-                padding: 20px;
-                margin: 5px;
+                padding: 15px;
+                margin: 0px;
             }
-            SettingsCard:hover {
-                border: 1px solid #4a90e2;
+            QLabel {
+                background-color: transparent;
+                color: #2c3e50;
             }
         """)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(15)
+        layout.setContentsMargins(15, 15, 15, 15)
+        layout.setSpacing(10)
 
-        # Title with white background
+        # Title
         title_label = QLabel(title)
         title_label.setStyleSheet("""
             QLabel {
-                background-color: #ffffff;
                 color: #2c3e50;
-                font-size: 20px;
+                font-size: 16px;
                 font-weight: bold;
-                padding: 5px 0px;
+                padding: 0px;
                 margin: 0px;
-                border-bottom: 2px solid #4a90e2;
+                background-color: transparent;
             }
         """)
         layout.addWidget(title_label)
 
         self.content_layout = QVBoxLayout()
-        self.content_layout.setSpacing(15)
-        self.content_layout.setContentsMargins(0, 10, 0, 0)
+        self.content_layout.setSpacing(10)
+        self.content_layout.setContentsMargins(0, 5, 0, 0)
         layout.addLayout(self.content_layout)
 
     def addWidget(self, widget):
@@ -218,21 +219,20 @@ class ClickableNumberField(QLineEdit):
         self.setReadOnly(True)
         self.setCursor(Qt.PointingHandCursor)
         self.setAlignment(Qt.AlignLeft)
-        self.setMinimumHeight(45)
-        self.setMaximumWidth(200)
+        self.setMinimumHeight(35)
+        self.setMaximumWidth(150)
 
         self.setStyleSheet("""
             QLineEdit {
-                background-color: #f8f9fa;
+                background-color: #ffffff;
                 color: #2c3e50;
-                border: 2px solid #e0e0e0;
-                border-radius: 10px;
-                padding: 10px 15px;
-                font-size: 16px;
-                font-weight: 600;
+                border: 1px solid #e0e0e0;
+                border-radius: 5px;
+                padding: 5px 10px;
+                font-size: 14px;
             }
             QLineEdit:hover {
-                border: 2px solid #4a90e2;
+                border: 1px solid #4a90e2;
                 background-color: #ffffff;
             }
         """)
@@ -275,13 +275,32 @@ class ClickableNumberField(QLineEdit):
 
 
 class SettingsPage(QWidget):
+    settings_changed = pyqtSignal()
+
     def __init__(self):
         super().__init__()
 
-        # Set page background
+        # Set background color for the whole page
         self.setStyleSheet("""
             QWidget {
                 background-color: #f5f5f5;
+            }
+            QTabWidget::pane {
+                border: none;
+                background-color: transparent;
+            }
+            QTabBar::tab {
+                background-color: #e0e0e0;
+                color: #2c3e50;
+                padding: 8px 16px;
+                margin-right: 2px;
+                border-top-left-radius: 5px;
+                border-top-right-radius: 5px;
+                font-size: 13px;
+            }
+            QTabBar::tab:selected {
+                background-color: #4a90e2;
+                color: white;
             }
             QLabel {
                 background-color: transparent;
@@ -290,86 +309,64 @@ class SettingsPage(QWidget):
             QCheckBox {
                 background-color: transparent;
                 color: #2c3e50;
-                spacing: 10px;
+                spacing: 5px;
             }
             QCheckBox::indicator {
-                width: 20px;
-                height: 20px;
+                width: 18px;
+                height: 18px;
                 background-color: #ffffff;
-                border: 2px solid #e0e0e0;
-                border-radius: 4px;
+                border: 1px solid #e0e0e0;
+                border-radius: 3px;
             }
             QCheckBox::indicator:checked {
                 background-color: #4a90e2;
-                border: 2px solid #4a90e2;
+                border: 1px solid #4a90e2;
+            }
+            QComboBox {
+                background-color: #ffffff;
+                border: 1px solid #e0e0e0;
+                border-radius: 5px;
+                padding: 5px;
+                min-height: 25px;
+            }
+            QSlider::groove:horizontal {
+                height: 6px;
+                background: #e0e0e0;
+                border-radius: 3px;
+            }
+            QSlider::handle:horizontal {
+                background: #4a90e2;
+                width: 18px;
+                height: 18px;
+                margin: -6px 0;
+                border-radius: 9px;
             }
         """)
 
         # Main layout
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(30, 30, 30, 30)
-        main_layout.setSpacing(20)
+        main_layout.setContentsMargins(10, 10, 10, 10)
+        main_layout.setSpacing(10)
 
-        # Header
-        header = QLabel("Settings")
-        header.setStyleSheet("""
-            QLabel {
-                background-color: transparent;
-                color: #2c3e50;
-                font-size: 36px;
-                font-weight: bold;
-                padding-bottom: 20px;
-            }
-        """)
-        header.setAlignment(Qt.AlignCenter)
-        main_layout.addWidget(header)
+        # Create tab widget
+        self.tabs = QTabWidget()
+        self.tabs.setStyleSheet("QTabWidget { background-color: transparent; }")
 
-        # Scroll area for content
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QScrollArea.NoFrame)
-        scroll.setStyleSheet("""
-            QScrollArea {
-                background-color: transparent;
-                border: none;
-            }
-            QScrollBar:vertical {
-                background-color: #f0f0f0;
-                width: 12px;
-                border-radius: 6px;
-            }
-            QScrollBar::handle:vertical {
-                background-color: #c0c0c0;
-                border-radius: 6px;
-                min-height: 30px;
-            }
-            QScrollBar::handle:vertical:hover {
-                background-color: #a0a0a0;
-            }
-        """)
-
-        scroll_widget = QWidget()
-        scroll_widget.setStyleSheet("background-color: transparent;")
-        scroll_layout = QVBoxLayout(scroll_widget)
-        scroll_layout.setContentsMargins(0, 0, 0, 0)
-        scroll_layout.setSpacing(20)
+        # General tab
+        general_tab = QWidget()
+        general_tab.setStyleSheet("background-color: transparent;")
+        general_layout = QVBoxLayout(general_tab)
+        general_layout.setContentsMargins(0, 10, 0, 0)
+        general_layout.setSpacing(10)
 
         # Price Settings Card
         price_card = SettingsCard("Price Settings")
-
         price_row = QHBoxLayout()
-        price_row.setSpacing(20)
+        price_row.setSpacing(10)
 
-        price_label = QLabel("Maximum Price per Kilogram:")
-        price_label.setStyleSheet("""
-            QLabel {
-                background-color: transparent;
-                color: #2c3e50;
-                font-size: 16px;
-                font-weight: 500;
-            }
-        """)
-        price_label.setMinimumWidth(250)
+        price_label = QLabel("Max Price per kg:")
+        price_label.setStyleSheet("font-size: 13px; background-color: transparent;")
+        price_label.setMinimumWidth(120)
 
         self.spin = ClickableNumberField(
             value=f"{get_max_price_per_kg():.2f}",
@@ -377,67 +374,31 @@ class SettingsPage(QWidget):
         )
 
         currency_label = QLabel("₱")
-        currency_label.setStyleSheet("""
-            QLabel {
-                background-color: transparent;
-                color: #4a90e2;
-                font-size: 18px;
-                font-weight: bold;
-            }
-        """)
+        currency_label.setStyleSheet("color: #4a90e2; font-size: 14px; background-color: transparent;")
 
         price_row.addWidget(price_label)
         price_row.addWidget(currency_label)
         price_row.addWidget(self.spin)
         price_row.addStretch()
-
         price_card.addLayout(price_row)
-        scroll_layout.addWidget(price_card)
+        general_layout.addWidget(price_card)
 
         # History Settings Card
         history_card = SettingsCard("History Settings")
 
         # Auto-purge checkbox
-        self.chk_purge = QCheckBox("Enable automatic history cleanup")
+        self.chk_purge = QCheckBox("Auto-cleanup old receipts")
         self.chk_purge.setChecked(get_history_auto_purge())
-        self.chk_purge.setStyleSheet("""
-            QCheckBox {
-                background-color: transparent;
-                color: #2c3e50;
-                font-size: 16px;
-                spacing: 10px;
-            }
-            QCheckBox::indicator {
-                width: 20px;
-                height: 20px;
-                background-color: #ffffff;
-                border: 2px solid #e0e0e0;
-                border-radius: 4px;
-            }
-            QCheckBox::indicator:checked {
-                background-color: #4a90e2;
-                border: 2px solid #4a90e2;
-            }
-            QCheckBox::indicator:hover {
-                border: 2px solid #4a90e2;
-            }
-        """)
+        self.chk_purge.setStyleSheet("font-size: 13px; background-color: transparent;")
         history_card.addWidget(self.chk_purge)
 
         # Keep days row
         days_row = QHBoxLayout()
-        days_row.setSpacing(20)
+        days_row.setSpacing(10)
 
-        days_label = QLabel("Keep receipts for:")
-        days_label.setStyleSheet("""
-            QLabel {
-                background-color: transparent;
-                color: #2c3e50;
-                font-size: 16px;
-                font-weight: 500;
-            }
-        """)
-        days_label.setMinimumWidth(150)
+        days_label = QLabel("Keep for:")
+        days_label.setMinimumWidth(60)
+        days_label.setStyleSheet("background-color: transparent;")
 
         self.keep_days = ClickableNumberField(
             value=str(get_history_keep_days()),
@@ -445,148 +406,379 @@ class SettingsPage(QWidget):
         )
 
         days_unit = QLabel("days")
-        days_unit.setStyleSheet("""
-            QLabel {
-                background-color: transparent;
-                color: #2c3e50;
-                font-size: 16px;
-                font-weight: 500;
-            }
-        """)
+        days_unit.setStyleSheet("background-color: transparent;")
 
         days_row.addWidget(days_label)
         days_row.addWidget(self.keep_days)
         days_row.addWidget(days_unit)
         days_row.addStretch()
 
-        history_card.addLayout(days_row)
-
-        # Enable/disable based on checkbox
         def _sync_days_enabled():
             self.keep_days.setEnabled(self.chk_purge.isChecked())
-            if not self.chk_purge.isChecked():
-                self.keep_days.setStyleSheet("""
-                    QLineEdit {
-                        background-color: #f0f0f0;
-                        color: #a0a0a0;
-                        border: 2px solid #e0e0e0;
-                        border-radius: 10px;
-                        padding: 10px 15px;
-                        font-size: 16px;
-                        font-weight: 600;
-                    }
-                """)
-            else:
-                self.keep_days.setStyleSheet("""
-                    QLineEdit {
-                        background-color: #f8f9fa;
-                        color: #2c3e50;
-                        border: 2px solid #e0e0e0;
-                        border-radius: 10px;
-                        padding: 10px 15px;
-                        font-size: 16px;
-                        font-weight: 600;
-                    }
-                    QLineEdit:hover {
-                        border: 2px solid #4a90e2;
-                        background-color: #ffffff;
-                    }
-                """)
 
         self.chk_purge.stateChanged.connect(_sync_days_enabled)
         _sync_days_enabled()
 
-        scroll_layout.addWidget(history_card)
+        history_card.addLayout(days_row)
+        general_layout.addWidget(history_card)
+        general_layout.addStretch()
 
-        # Add stretch at the bottom
-        scroll_layout.addStretch()
+        # Camera tab
+        camera_tab = QWidget()
+        camera_tab.setStyleSheet("background-color: transparent;")
+        camera_layout = QVBoxLayout(camera_tab)
+        camera_layout.setContentsMargins(0, 10, 0, 0)
+        camera_layout.setSpacing(10)
+        camera_layout.addWidget(self.create_camera_tab())
+        camera_layout.addStretch()
 
-        scroll.setWidget(scroll_widget)
-        main_layout.addWidget(scroll)
+        # Add tabs
+        self.tabs.addTab(general_tab, "General")
+        self.tabs.addTab(camera_tab, "Camera")
+
+        main_layout.addWidget(self.tabs)
 
         # Save button
-        button_container = QWidget()
-        button_container.setStyleSheet("background-color: transparent;")
-        button_layout = QHBoxLayout(button_container)
-        button_layout.setContentsMargins(0, 10, 0, 0)
+        button_layout = QHBoxLayout()
+        button_layout.addStretch()
 
         self.save_btn = QPushButton("Save Changes")
-        self.save_btn.setFixedSize(250, 60)
+        self.save_btn.setFixedSize(150, 35)
         self.save_btn.setCursor(Qt.PointingHandCursor)
         self.save_btn.setStyleSheet("""
             QPushButton {
                 background-color: #4a90e2;
-                color: #ffffff;
+                color: white;
                 border: none;
-                border-radius: 15px;
-                font-size: 18px;
+                border-radius: 5px;
+                font-size: 13px;
                 font-weight: bold;
             }
             QPushButton:hover {
                 background-color: #5aa0f2;
             }
-            QPushButton:pressed {
-                background-color: #3a80d2;
-            }
         """)
         self.save_btn.clicked.connect(self.on_save)
 
-        button_layout.addStretch()
         button_layout.addWidget(self.save_btn)
         button_layout.addStretch()
 
-        main_layout.addWidget(button_container)
+        main_layout.addLayout(button_layout)
 
     def on_save(self):
-        # Store old values for rollback
-        old_price = get_max_price_per_kg()
-        old_keep_days = get_history_keep_days()
-        old_auto_purge = get_history_auto_purge()
+        try:
+            # Store old values for rollback
+            old_price = get_max_price_per_kg()
+            old_keep_days = get_history_keep_days()
+            old_auto_purge = get_history_auto_purge()
 
-        # Passcode dialog
-        dlg = NumberKeyboardDialog(
-            value="",
-            allow_decimal=False,
-            parent=self,
-            password_mode=True
-        )
-        dlg.setWindowTitle("Enter Passcode")
-
-        if not dlg.exec_():
-            # Cancelled - revert UI
-            self.spin.set_numeric_value(old_price)
-            self.keep_days.set_numeric_value(old_keep_days)
-            self.chk_purge.setChecked(old_auto_purge)
-            return
-
-        password = dlg.get_value()
-
-        if not validate_passcode(password):
-            # Wrong passcode - revert UI
-            self.spin.set_numeric_value(old_price)
-            self.keep_days.set_numeric_value(old_keep_days)
-            self.chk_purge.setChecked(old_auto_purge)
-
-            QMessageBox.warning(
-                self,
-                "Access Denied",
-                "Incorrect passcode. Changes were not saved."
+            # Passcode dialog
+            dlg = NumberKeyboardDialog(
+                value="",
+                allow_decimal=False,
+                parent=self,
+                password_mode=True
             )
-            return
+            dlg.setWindowTitle("Enter Passcode")
 
-        # Save settings
-        val = self.spin.get_numeric_value()
-        keep_days = self.keep_days.get_numeric_value()
-        auto_purge = self.chk_purge.isChecked()
+            if not dlg.exec_():
+                # Cancelled - revert UI
+                self.spin.set_numeric_value(old_price)
+                self.keep_days.set_numeric_value(old_keep_days)
+                self.chk_purge.setChecked(old_auto_purge)
+                return
 
-        set_max_price_per_kg(val)
-        set_history_auto_purge(auto_purge)
-        set_history_keep_days(keep_days)
+            password = dlg.get_value()
 
-        QMessageBox.information(
-            self,
-            "Settings Saved",
-            f"✓ Maximum price: ₱{val:.2f}/kg\n"
-            f"✓ Auto-cleanup: {'ON' if auto_purge else 'OFF'}\n"
-            f"✓ Keep for: {keep_days} days"
+            if not validate_passcode(password):
+                # Wrong passcode - revert UI
+                self.spin.set_numeric_value(old_price)
+                self.keep_days.set_numeric_value(old_keep_days)
+                self.chk_purge.setChecked(old_auto_purge)
+                QMessageBox.warning(
+                    self,
+                    "Access Denied",
+                    "Incorrect passcode. Changes were not saved."
+                )
+                return
+
+            # Save general settings
+            val = self.spin.get_numeric_value()
+            keep_days = self.keep_days.get_numeric_value()
+            auto_purge = self.chk_purge.isChecked()
+
+            set_max_price_per_kg(val)
+            set_history_auto_purge(auto_purge)
+            set_history_keep_days(keep_days)
+
+            # --- Camera settings ---
+            # Verify all required widgets exist (they should, but safety first)
+            required_attrs = [
+                'camera_brightness', 'camera_contrast', 'camera_saturation',
+                'camera_sharpness', 'camera_exposure', 'camera_red_gain',
+                'camera_blue_gain', 'camera_res', 'camera_fps',
+                'camera_hflip', 'camera_vflip'
+            ]
+            missing = [attr for attr in required_attrs if not hasattr(self, attr)]
+            if missing:
+                raise RuntimeError(f"Camera UI components missing: {missing}")
+
+            camera_settings = {
+                "brightness": self.camera_brightness.value(),
+                "contrast": self.camera_contrast.value(),
+                "saturation": self.camera_saturation.value(),
+                "sharpness": self.camera_sharpness.value(),
+                "exposure": self.camera_exposure.value(),
+                "red_gain": self.camera_red_gain.value() / 100.0,
+                "blue_gain": self.camera_blue_gain.value() / 100.0,
+                "resolution": self.camera_res.currentText(),
+                "fps": int(self.camera_fps.currentText()),
+                "hflip": self.camera_hflip.isChecked(),
+                "vflip": self.camera_vflip.isChecked()
+            }
+            update_camera_settings(camera_settings)
+
+            # Notify that settings have changed (e.g., to restart camera)
+            self.settings_changed.emit()
+
+            QMessageBox.information(self, "Success", "Settings saved successfully.")
+
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            QMessageBox.critical(
+                self,
+                "Error",
+                f"An unexpected error occurred while saving:\n{str(e)}"
+            )
+
+    def create_camera_tab(self):
+        """Create camera settings tab with platform-aware enabled/disabled states"""
+
+        camera_card = SettingsCard("Camera Settings")
+
+        is_windows = sys.platform.startswith("win")
+        camera_settings = get_camera_settings()
+
+        # Create a scroll area for the camera card
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setStyleSheet("""
+            QScrollArea {
+                border: none;
+                background-color: transparent;
+            }
+            QScrollBar:vertical {
+                border: none;
+                background: #f0f0f0;
+                width: 10px;
+                border-radius: 5px;
+            }
+            QScrollBar::handle:vertical {
+                background: #c0c0c0;
+                border-radius: 5px;
+                min-height: 20px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background: #a0a0a0;
+            }
+        """)
+
+        # Create content widget for scroll area
+        scroll_content = QWidget()
+        scroll_content.setStyleSheet("background-color: transparent;")
+
+        main_layout = QVBoxLayout(scroll_content)
+        main_layout.setContentsMargins(5, 5, 15, 5)  # Right margin for scrollbar
+        main_layout.setSpacing(10)  # Reduced spacing
+
+        # ===== ALWAYS ENABLED CONTROLS =====
+        enabled_grid = QGridLayout()
+        enabled_grid.setColumnStretch(1, 1)
+        enabled_grid.setVerticalSpacing(12)  # Reduced from 15
+        enabled_grid.setHorizontalSpacing(15)
+
+        combo_style = """
+            QComboBox {
+                background-color: white;
+                color: #2c3e50;
+                border: 1px solid #e0e0e0;
+                border-radius: 5px;
+                padding: 6px;  /* Reduced from 8px */
+                min-height: 25px;  /* Reduced from 30px */
+                font-size: 13px;
+            }
+        """
+
+        # Resolution
+        enabled_grid.addWidget(QLabel("Resolution:"), 0, 0)
+        self.camera_res = QComboBox()
+        self.camera_res.addItems(["640x480", "800x600", "1024x768", "1280x720", "1920x1080"])
+        self.camera_res.setCurrentText(camera_settings.get("resolution", "1280x720"))
+        self.camera_res.setMaximumWidth(160)  # Reduced from 180
+        self.camera_res.setStyleSheet(combo_style)
+        enabled_grid.addWidget(self.camera_res, 0, 1)
+
+        # FPS
+        enabled_grid.addWidget(QLabel("Frame Rate:"), 1, 0)
+        self.camera_fps = QComboBox()
+        self.camera_fps.addItems(["15", "30", "60"])
+        self.camera_fps.setCurrentText(str(camera_settings.get("fps", 30)))
+        self.camera_fps.setMaximumWidth(160)  # Reduced from 180
+        self.camera_fps.setStyleSheet(combo_style)
+        enabled_grid.addWidget(self.camera_fps, 1, 1)
+
+        # Flip
+        enabled_grid.addWidget(QLabel("Flip:"), 2, 0)
+        flip_widget = QWidget()
+        flip_layout = QHBoxLayout(flip_widget)
+        flip_layout.setContentsMargins(0, 0, 0, 0)
+        flip_layout.setSpacing(15)  # Reduced from 20
+
+        self.camera_hflip = QCheckBox("Horizontal")
+        self.camera_hflip.setChecked(camera_settings.get("hflip", False))
+        self.camera_hflip.setStyleSheet("QCheckBox { font-size: 13px; }")
+        flip_layout.addWidget(self.camera_hflip)
+
+        self.camera_vflip = QCheckBox("Vertical")
+        self.camera_vflip.setChecked(camera_settings.get("vflip", False))
+        self.camera_vflip.setStyleSheet("QCheckBox { font-size: 13px; }")
+        flip_layout.addWidget(self.camera_vflip)
+
+        flip_layout.addStretch()
+        enabled_grid.addWidget(flip_widget, 2, 1)
+
+        main_layout.addLayout(enabled_grid)
+
+        # ===== SEPARATOR with reduced spacing =====
+        main_layout.addSpacing(8)  # Reduced from 10
+        line = QFrame()
+        line.setFrameShape(QFrame.HLine)
+        line.setStyleSheet("background-color:#e0e0e0; max-height:1px;")
+        main_layout.addWidget(line)
+        main_layout.addSpacing(8)  # Reduced from 10
+
+        # ===== HEADER =====
+        header = QLabel(
+            "⛔ Advanced Controls (Disabled on Windows - RPi Camera Only)"
+            if is_windows else "⚙️ Advanced Controls"
         )
+        header.setStyleSheet(
+            "color:#ff6b6b;font-weight:bold;font-size:12px;padding:3px 0px;"
+            if is_windows else
+            "color:#4a90e2;font-weight:bold;font-size:12px;padding:3px 0px;"
+        )
+        main_layout.addWidget(header)
+
+        # ===== ADVANCED CONTROLS =====
+        advanced_container = QWidget()
+        advanced_layout = QVBoxLayout(advanced_container)
+        advanced_layout.setContentsMargins(10, 10, 10, 10)  # Reduced from 15
+
+        advanced_grid = QGridLayout()
+        advanced_grid.setColumnStretch(0, 0)  # label
+        advanced_grid.setColumnStretch(1, 1)  # slider expands
+        advanced_grid.setColumnStretch(2, 0)  # value label
+
+        # Reduced vertical spacing
+        advanced_grid.setVerticalSpacing(18)  # Reduced from 25 to 18
+        advanced_grid.setHorizontalSpacing(15)  # Reduced from 20 to 15
+        advanced_grid.setContentsMargins(0, 2, 0, 2)
+
+        advanced_enabled = not is_windows
+        label_style = "color:#808080;font-size:12px;" if is_windows else "font-size:12px;"
+
+        def slider_row(row, text, attr, min_v, max_v, value, scale=1):
+            label = QLabel(text)
+            label.setStyleSheet(label_style + "padding:1px 0px;")
+            label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            label.setMinimumWidth(100)  # Reduced from 120
+
+            slider = QSlider(Qt.Horizontal)
+            slider.setRange(min_v, max_v)
+            slider.setValue(value)
+            slider.setEnabled(advanced_enabled)
+            slider.setMinimumWidth(250)  # Reduced from 300
+            slider.setFixedHeight(24)  # Reduced from 30
+
+            # Style the slider
+            slider.setStyleSheet("""
+                QSlider::groove:horizontal {
+                    height: 6px;  /* Reduced from 8px */
+                    background: #e0e0e0;
+                    border-radius: 3px;
+                }
+                QSlider::handle:horizontal {
+                    background: #4a90e2;
+                    width: 18px;  /* Reduced from 20px */
+                    height: 18px;  /* Reduced from 20px */
+                    margin: -6px 0;
+                    border-radius: 9px;
+                }
+                QSlider::handle:horizontal:hover {
+                    background: #5aa0f2;
+                    width: 20px;  /* Slightly larger on hover */
+                    height: 20px;
+                }
+            """)
+
+            value_label = QLabel(
+                f"{value / scale:.2f}" if scale != 1 else str(value)
+            )
+            value_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            value_label.setMinimumWidth(50)  # Reduced from 60
+            value_label.setStyleSheet(label_style + "font-weight:bold;")
+
+            slider.valueChanged.connect(
+                lambda v, l=value_label, s=scale:
+                l.setText(f"{v / s:.2f}" if s != 1 else str(v))
+            )
+
+            setattr(self, attr, slider)
+            setattr(self, f"{attr}_label", value_label)
+
+            advanced_grid.addWidget(label, row, 0)
+            advanced_grid.addWidget(slider, row, 1)
+            advanced_grid.addWidget(value_label, row, 2)
+
+        # Add the slider rows
+        rows = [
+            (0, "Brightness:", "camera_brightness", 0, 100, int(camera_settings.get("brightness", 50))),
+            (1, "Contrast:", "camera_contrast", -100, 100, int(camera_settings.get("contrast", 0))),
+            (2, "Saturation:", "camera_saturation", -100, 100, int(camera_settings.get("saturation", 0))),
+            (3, "Sharpness:", "camera_sharpness", -100, 100, int(camera_settings.get("sharpness", 0))),
+            (4, "Exposure:", "camera_exposure", -10, 10, int(camera_settings.get("exposure", 0))),
+            (5, "Red Gain:", "camera_red_gain", 0, 200, int(camera_settings.get("red_gain", 100) * 100), 100),
+            (6, "Blue Gain:", "camera_blue_gain", 0, 200, int(camera_settings.get("blue_gain", 100) * 100), 100)
+        ]
+
+        for row_params in rows:
+            slider_row(*row_params)
+
+        advanced_layout.addLayout(advanced_grid)
+
+        # Reduced bottom spacing
+        advanced_layout.addSpacing(5)
+
+        main_layout.addWidget(advanced_container)
+
+        # Reduced spacing before note
+        main_layout.addSpacing(5)
+
+        # NOTE
+        note = QLabel("Note: Changes apply after camera restart.")
+        note.setStyleSheet("color:#808080;font-size:11px;font-style:italic;padding:5px 0px;")
+        note.setAlignment(Qt.AlignCenter)
+        main_layout.addWidget(note)
+
+        # Add stretch to push content up
+        main_layout.addStretch()
+
+        # Set the scroll content
+        scroll.setWidget(scroll_content)
+
+        # Add scroll to camera card
+        camera_card.addWidget(scroll)
+
+        return camera_card
