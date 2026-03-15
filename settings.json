@@ -2,5 +2,18 @@
   "max_price_per_kg": 450.0,
   "history_auto_purge": false,
   "history_keep_days": 30,
-  "settings_passcode": "0000"
+  "settings_passcode": "0000",
+  "camera": {
+    "brightness": 100,
+    "contrast": 100,
+    "saturation": 44,
+    "sharpness": 100,
+    "exposure": 7,
+    "red_gain": 1.3,
+    "blue_gain": 1.8,
+    "resolution": "1920x1080",
+    "fps": 30,
+    "hflip": false,
+    "vflip": false
+  }
 }
