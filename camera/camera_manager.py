@@ -82,12 +82,20 @@ def init_camera(index=0, width=1280, height=720, use_picamera=True):
                     main={"size": (width, height), "format": "RGB888"},
                     controls={
                         "FrameRate": 30,
-                        "AfMode": 1,  # Continuous AF
-                        "AfSpeed": 1,  # Fast AF
-                        "Brightness": 0.5,
-                        "Contrast": 1.0,
-                        "Sharpness": 2.0
-                    }
+                        "AfMode": 1,
+                        "AfSpeed": 1,
+                        "Brightness": 0.50,
+                        "Contrast": 1.15,
+                        "Sharpness": 1.35,
+                        "Saturation": 1.05,
+                        "ExposureValue": 0.0,
+                        "AeMeteringMode": 0,
+                        "NoiseReductionMode": 1,
+
+                        "AwbEnable": 0, #disable auto white balance
+                        "ColourGains": (1.5, 1.8) #manual rgb
+                    },
+                    transform=Transform(hflip=True)
                 )
 
                 picam2.configure(video_config)

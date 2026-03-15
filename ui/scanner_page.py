@@ -460,7 +460,7 @@ class ScannerPage(QWidget):
         self.worker.start()
 
     def on_scan_done(self, tray_avg, tray_grade, price_per_kg, pdf_path, kernel_results):
-        """Handle successful scan"""
+        """Handle successful scan with properly sized message box"""
         self.scan.setEnabled(True)
         self.scan.setText("Scan")
         self.set_instruction("Position Tray then Click Scan", scanning=False)
@@ -508,8 +508,6 @@ class ScannerPage(QWidget):
         # Try to print ticket - with error handling
         try:
             from utils.ticket import print_ticket
-
-            # Attempt to print
             print_ticket(
                 defect_lines=defect_lines,
                 grade_lines=grade_lines,
@@ -521,30 +519,112 @@ class ScannerPage(QWidget):
                 pdf_path=pdf_path
             )
         except Exception:
-            # Silently ignore printer errors - non-critical
             pass
 
         now = datetime.now()
         date_str = now.strftime("%Y-%m-%d")
         time_str = now.strftime("%H:%M:%S")
 
-        msg = (
-                "SCAN SUMMARY\n"
-                f"Date: {date_str}\n"
-                f"Time: {time_str}\n\n"
-                f"Max Price per Kg: Php{max_price:.2f}\n\n"
-                "DEFECT COUNTS\n"
-                + "\n".join(defect_lines)
-                + "\n\nKERNELS PER CLASS\n"
-                + f"Detected kernels: {detected}\n"
-                + "\n".join(grade_lines)
-                + f"\n\nTray Avg Score: {tray_avg:.2f}\n"
-                + f"Tray Avg Grade: {tray_grade}\n"
-                + f"Estimated Price: Php{price_per_kg:.2f}/kg\n\n"
-                + f"Scan saved:\n{pdf_path}"
+        # Create a condensed message for the message box
+        # Only show summary, not all details
+        summary_msg = (
+            f"✅ SCAN COMPLETE\n"
+            f"━━━━━━━━━━━━━━━━\n"
+            f"Date: {date_str}\n"
+            f"Time: {time_str}\n"
+            f"━━━━━━━━━━━━━━━━\n"
+            f"Kernels detected: {detected}\n"
+            f"Tray Grade: {tray_grade}\n"
+            f"Price: Php{price_per_kg:.2f}/kg\n"
+            f"━━━━━━━━━━━━━━━━\n"
+            f"PDF saved"
         )
 
-        QMessageBox.information(self, "Scan Complete", msg)
+        # Create message box with proper size
+        msg_box = QMessageBox(self)
+        msg_box.setWindowTitle("Scan Complete")
+        msg_box.setText(summary_msg)
+        msg_box.setIcon(QMessageBox.Information)
+        msg_box.setStandardButtons(QMessageBox.Ok)
+
+        # Add a "Details" button if user wants to see full breakdown
+        details_btn = msg_box.addButton("View Details", QMessageBox.ActionRole)
+
+        # Set fixed size to fit your window (max 400 height)
+        msg_box.setFixedSize(400, 300)  # Width, Height - adjust as needed
+
+        # Show the message box
+        result = msg_box.exec_()
+
+        # If user clicked Details, show full report in a separate dialog
+        if msg_box.clickedButton() == details_btn:
+            self.show_full_report(date_str, time_str, max_price, defect_lines,
+                                  grade_lines, detected, tray_avg, tray_grade,
+                                  price_per_kg, pdf_path)
+
+    def show_full_report(self, date_str, time_str, max_price, defect_lines,
+                         grade_lines, detected, tray_avg, tray_grade,
+                         price_per_kg, pdf_path):
+        """Show full scrollable report in a separate dialog"""
+        from PyQt5.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QTextEdit, QPushButton
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Detailed Scan Report")
+        dialog.resize(500, 450)  # Fixed size for details dialog
+
+        layout = QVBoxLayout(dialog)
+
+        # Scrollable text area
+        text_edit = QTextEdit()
+        text_edit.setReadOnly(True)
+
+        # Format with HTML for better readability
+        html = f"""
+        <h2>📊 DETAILED SCAN REPORT</h2>
+        <hr>
+        <table width='100%'>
+            <tr><td><b>Date:</b></td><td>{date_str}</td></tr>
+            <tr><td><b>Time:</b></td><td>{time_str}</td></tr>
+            <tr><td><b>Max Price:</b></td><td>Php{max_price:.2f}/kg</td></tr>
+        </table>
+
+        <h3>📉 DEFECT COUNTS</h3>
+        <table width='100%' border='1' cellpadding='4'>
+            <tr><th>Defect Type</th><th>Count</th></tr>
+            {"".join(f"<tr><td>{d.split(':')[0]}</td><td>{d.split(':')[1]}</td></tr>" for d in defect_lines)}
+        </table>
+
+        <h3>🥜 KERNEL GRADES</h3>
+        <table width='100%' border='1' cellpadding='4'>
+            <tr><th>Grade</th><th>Count</th></tr>
+            <tr><td><b>Total Detected</b></td><td><b>{detected}</b></td></tr>
+            {"".join(f"<tr><td>{g.split(':')[0]}</td><td>{g.split(':')[1]}</td></tr>" for g in grade_lines)}
+        </table>
+
+        <h3>📈 FINAL RESULTS</h3>
+        <table width='100%'>
+            <tr><td><b>Tray Avg Score:</b></td><td>{tray_avg:.2f}</td></tr>
+            <tr><td><b>Tray Avg Grade:</b></td><td>{tray_grade}</td></tr>
+            <tr><td><b>Estimated Price:</b></td><td>Php{price_per_kg:.2f}/kg</td></tr>
+        </table>
+
+        <p><small><b>PDF saved at:</b><br>{pdf_path}</small></p>
+        """
+
+        text_edit.setHtml(html)
+        layout.addWidget(text_edit)
+
+        # Close button
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(dialog.accept)
+        close_btn.setFixedSize(100, 30)
+        btn_layout.addWidget(close_btn)
+        btn_layout.addStretch()
+        layout.addLayout(btn_layout)
+
+        dialog.exec_()
 
     def on_scan_failed(self, msg: str):
         """Handle scan failure"""
