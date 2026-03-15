@@ -1,5 +1,6 @@
 {
-  "max_price_per_kg": 480.0,
+  "max_price_per_kg": 450.0,
   "history_auto_purge": false,
-  "history_keep_days": 30
+  "history_keep_days": 30,
+  "settings_passcode": "0000"
 }
