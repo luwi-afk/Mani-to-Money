@@ -12,7 +12,7 @@ from PyQt5.QtWidgets import (
 
 from camera.camera_manager import (
     init_camera, read_camera, get_camera, release_camera,
-    is_using_picamera, set_autofocus_region, trigger_autofocus
+    is_using_picamera
 )
 from detection.detector import PeanutDetector
 from utils.file_utils import project_path, ensure_dir
