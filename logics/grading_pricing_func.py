@@ -2,11 +2,23 @@ import numpy as np
 
 MAX_SCORE = 100.0
 
+''''
+| Defect             | Score | Grade     |
+| ------------------ | ----- | --------- |
+| broken             | 92    | Class I   |
+| shriveled          | 88    | Class I   |
+| pest_damage        | 85    | Class I   |
+| broken + shriveled | 80    | Class I   |
+| shriveled + pest   | 73    | Class II  |
+| pest + broken      | 77    | Class II  |
+| moldy              | 70    | Non-trade |
+'''
+
 PENALTY = {
     "moldy": 30,
-    "pest_damage": 7,
-    "shriveled": 7,
-    "broken": 5,
+    "pest_damage": 15,
+    "shriveled": 12,
+    "broken": 8,
 }
 ALLOWED_DEFECTS = set(PENALTY.keys())
 
@@ -28,9 +40,9 @@ def classify_grade(score: float) -> str:
     score = max(0.0, min(float(score), 100.0))
     if score == 100.0:
         return "Extra Class"
-    if 92 <= score < 100.0:
+    if 80 <= score < 100.0:
         return "Class I"
-    if 85 <= score < 92:
+    if 73 <= score < 80:
         return "Class II"
     return "Non-trade"
 

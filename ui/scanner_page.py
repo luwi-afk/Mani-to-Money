@@ -451,37 +451,63 @@ class ScannerPage(QWidget):
             )
             return
 
+        # Get max price for display and printing
+        max_price = get_max_price_per_kg()
+
+        # Try to print ticket - WITH ERROR HANDLING
         try:
             from utils.ticket import print_ticket
-            print_ticket(
+
+            # Attempt to print
+            print_success = print_ticket(
                 defect_lines=defect_lines,
                 grade_lines=grade_lines,
                 detected=detected,
                 tray_avg=tray_avg,
                 tray_grade=tray_grade,
                 price_per_kg=price_per_kg,
+                max_price_per_kg=max_price,  # Use the variable we defined
                 pdf_path=pdf_path
             )
-        except Exception:
-            pass  #Printer not available – ignore silently
+
+            # Optional: Show warning if printer failed
+            if not print_success:
+                # Just log it, don't show to user
+                print("Printer not available - continuing without receipt")
+                # Uncomment if you want to notify user:
+                # QMessageBox.warning(
+                #     self,
+                #     "Printer Not Available",
+                #     "Receipt could not be printed.\n"
+                #     "Scan results are still saved as PDF."
+                # )
+
+        except ImportError:
+            # Ticket module not available
+            print("Printer module not available - continuing without receipt")
+
+        except Exception as e:
+            # Any other printer error - just log it, don't crash
+            print(f"Printer error (non-critical): {e}")
 
         now = datetime.now()
         date_str = now.strftime("%Y-%m-%d")
         time_str = now.strftime("%H:%M:%S")
 
         msg = (
-            "SCAN SUMMARY\n"
-            f"Date: {date_str}\n"
-            f"Time: {time_str}\n\n"
-            "DEFECT COUNTS\n"
-            + "\n".join(defect_lines)
-            + "\n\nKERNELS PER CLASS\n"
-            + f"Detected kernels: {detected}\n"
-            + "\n".join(grade_lines)
-            + f"\n\nTray Avg Score: {tray_avg:.2f}\n"
-            + f"Tray Avg Grade: {tray_grade}\n"
-            + f"Estimated Price per Kg: Php{price_per_kg:.2f} per kg\n\n"
-            + f"Scan saved:\n{pdf_path}"
+                "SCAN SUMMARY\n"
+                f"Date: {date_str}\n"
+                f"Time: {time_str}\n\n"
+                f"Max Price per Kg: Php{max_price:.2f}\n\n"  # Fixed: use max_price
+                "DEFECT COUNTS\n"
+                + "\n".join(defect_lines)
+                + "\n\nKERNELS PER CLASS\n"
+                + f"Detected kernels: {detected}\n"
+                + "\n".join(grade_lines)
+                + f"\n\nTray Avg Score: {tray_avg:.2f}\n"
+                + f"Tray Avg Grade: {tray_grade}\n"
+                + f"Estimated Price: Php{price_per_kg:.2f}/kg\n\n"
+                + f"Scan saved:\n{pdf_path}"
         )
 
         QMessageBox.information(self, "Scan Complete", msg)
