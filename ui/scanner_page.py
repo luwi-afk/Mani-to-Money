@@ -242,8 +242,8 @@ class ScannerPage(QWidget):
 
     # ---- Page lifecycle ----
     def start_camera(self):
-        """Initialize and start camera with RPi Module 3 support"""
-        # Try to initialize with picamera for RPi Module 3
+        """Initialize and start camera - SIMPLIFIED without autofocus regions"""
+
         if not init_camera(use_picamera=True):
             QMessageBox.critical(self, "Camera Error", "Camera not available.")
             return False
@@ -253,18 +253,8 @@ class ScannerPage(QWidget):
             QMessageBox.critical(self, "Camera Error", "Camera not available.")
             return False
 
-        # Check if we're using RPi Camera Module 3
+        # Just check if using Module 3 (for info only, no complex config)
         self._using_module3 = is_using_picamera()
-
-        # Configure Camera Module 3 specific settings
-        if self._using_module3:
-            try:
-                # Set autofocus to center region for better accuracy
-                set_autofocus_region(0.25, 0.25, 0.5, 0.5)
-                # Trigger initial autofocus
-                trigger_autofocus()
-            except Exception:
-                pass  # Autofocus not available or failed
 
         self.last_frame_bgr = None
         self.last_result = None
