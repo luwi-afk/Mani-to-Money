@@ -1,4 +1,5 @@
 import os
+import numpy as np
 from datetime import datetime
 
 import cv2
@@ -9,7 +10,10 @@ from PyQt5.QtWidgets import (
     QMessageBox, QSizePolicy
 )
 
-from camera.camera_manager import init_camera, get_camera, release_camera
+from camera.camera_manager import (
+    init_camera, read_camera, get_camera, release_camera,
+    is_using_picamera, set_autofocus_region, trigger_autofocus
+)
 from detection.detector import PeanutDetector
 from utils.file_utils import project_path, ensure_dir
 from utils.pdf_report import generate_scan_report
@@ -178,9 +182,11 @@ class ScannerPage(QWidget):
         self.last_result = None
         self._frame_i = 0
         self.infer_every = 6
+        self._failed_reads = 0
+        self._using_module3 = False
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(5,5,5,5)
+        layout.setContentsMargins(5, 5, 5, 5)
         layout.setSpacing(10)
 
         self.instruction = QLabel("Position Tray then Click Scan")
@@ -199,12 +205,13 @@ class ScannerPage(QWidget):
         layout.addWidget(self.instruction)
 
         self.video = QLabel()
-        self.video.setMinimumSize(658, 370) #feedback video size
+        self.video.setMinimumSize(747, 420)
         self.video.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.video.setAlignment(Qt.AlignCenter)
         self.video.setStyleSheet("background: transparent;")
         layout.addWidget(self.video, stretch=1)
 
+        # Button container
         btn_container = QWidget()
         btn_container.setFixedSize(160, 70)
         btns = QHBoxLayout(btn_container)
@@ -235,15 +242,34 @@ class ScannerPage(QWidget):
 
     # ---- Page lifecycle ----
     def start_camera(self):
-        init_camera()
+        """Initialize and start camera with RPi Module 3 support"""
+        # Try to initialize with picamera for RPi Module 3
+        if not init_camera(use_picamera=True):
+            QMessageBox.critical(self, "Camera Error", "Camera not available.")
+            return False
+
         self.camera = get_camera()
         if not self.camera:
             QMessageBox.critical(self, "Camera Error", "Camera not available.")
             return False
 
+        # Check if we're using RPi Camera Module 3
+        self._using_module3 = is_using_picamera()
+
+        # Configure Camera Module 3 specific settings
+        if self._using_module3:
+            try:
+                # Set autofocus to center region for better accuracy
+                set_autofocus_region(0.25, 0.25, 0.5, 0.5)
+                # Trigger initial autofocus
+                trigger_autofocus()
+            except Exception:
+                pass  # Autofocus not available or failed
+
         self.last_frame_bgr = None
         self.last_result = None
         self._frame_i = 0
+        self._failed_reads = 0
 
         self.scan.setEnabled(True)
         self.scan.setText("Scan")
@@ -255,6 +281,7 @@ class ScannerPage(QWidget):
         return True
 
     def stop_camera(self):
+        """Stop camera and cleanup"""
         if self.timer.isActive():
             self.timer.stop()
 
@@ -264,12 +291,14 @@ class ScannerPage(QWidget):
 
         release_camera()
         self.camera = None
+        self._using_module3 = False
 
         self.scan.setEnabled(True)
         self.scan.setText("Scan")
         self.set_instruction("Position Tray then Click Scan", scanning=False)
 
     def set_instruction(self, text: str, scanning: bool = False):
+        """Update instruction label style"""
         if scanning:
             self.instruction.setStyleSheet("""
                 QLabel {
@@ -294,8 +323,18 @@ class ScannerPage(QWidget):
             """)
         self.instruction.setText(text)
 
+    def _show_no_signal(self):
+        """Show 'No Signal' placeholder when camera fails"""
+        blank = np.zeros((420, 747, 3), dtype=np.uint8)
+        cv2.putText(blank, "No Camera Signal", (200, 210),
+                    cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+        cv2.putText(blank, "Check Camera Connection", (150, 270),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (200, 200, 200), 1)
+        self._show_frame(blank)
+
     # ---- Preview drawing methods ----
     def draw_kernel_grade_price(self, frame_bgr, result):
+        """Draw kernel annotations on frame"""
         from logics.grading_pricing_func import (
             get_kernel_boxes, get_defect_boxes, compute_kernel_results
         )
@@ -319,6 +358,7 @@ class ScannerPage(QWidget):
         return _draw_kernel_grade_price(frame_bgr, kernel_results)
 
     def draw_defects_feedback(self, frame_bgr, result):
+        """Draw defect annotations on frame"""
         from logics.grading_pricing_func import get_defect_boxes
 
         if result is None or result.boxes is None or len(result.boxes.xyxy) == 0:
@@ -331,7 +371,7 @@ class ScannerPage(QWidget):
 
         defects = get_defect_boxes(
             result,
-            conf_min=0.10,
+            conf_min=0.25,
             label_map=LABEL_MAP,
             kernel_label="peanut_kernel"
         )
@@ -340,54 +380,73 @@ class ScannerPage(QWidget):
 
     # ---- Realtime loop ----
     def update_frame(self):
+        """Main update loop for camera feed"""
         if not self.camera:
             return
 
-        ok, frame = self.camera.read()
-        if not ok or frame is None:
-            return
+        try:
+            ok, frame = read_camera()
+            if not ok or frame is None:
+                self._failed_reads += 1
+                if self._failed_reads > 10:  # After 10 failed reads, show no signal
+                    self._show_no_signal()
+                return
 
-        frame = cv2.flip(frame, 1)
-        self.last_frame_bgr = frame.copy()
-        self._frame_i += 1
+            # Reset failed counter on success
+            self._failed_reads = 0
 
-        if (self._frame_i % self.infer_every) == 0:
-            try:
-                self.last_result = self.detector.predict(frame, conf=self.conf, iou=self.iou, imgsz=640)
-            except Exception:
-                self.last_result = None
+            # Flip horizontally for mirror effect
+            frame = cv2.flip(frame, 1)
+            self.last_frame_bgr = frame.copy()
+            self._frame_i += 1
 
-        annotated = frame.copy()
+            # Run inference every N frames
+            if (self._frame_i % self.infer_every) == 0:
+                try:
+                    self.last_result = self.detector.predict(
+                        frame, conf=self.conf, iou=self.iou, imgsz=640
+                    )
+                except Exception:
+                    self.last_result = None
 
-        if self.last_result is not None and self.last_result.boxes is not None and len(self.last_result.boxes.xyxy) > 0:
-            try:
-                annotated = self.draw_kernel_grade_price(annotated, self.last_result)
-            except Exception:
-                pass
-            try:
-                annotated = self.draw_defects_feedback(annotated, self.last_result)
-            except Exception:
-                pass
+            # Draw annotations
+            annotated = frame.copy()
+            if self.last_result is not None:
+                try:
+                    if hasattr(self.last_result, 'boxes') and len(self.last_result.boxes.xyxy) > 0:
+                        annotated = self.draw_kernel_grade_price(annotated, self.last_result)
+                        annotated = self.draw_defects_feedback(annotated, self.last_result)
+                except Exception:
+                    pass
 
-        self._show_frame(annotated)
+            self._show_frame(annotated)
+
+        except Exception:
+            # Silently fail on unexpected errors
+            pass
 
     def _show_frame(self, frame_bgr):
-        rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
-        h, w, ch = rgb.shape
-        bytes_per_line = ch * w
-        qimg = QImage(rgb.data, w, h, bytes_per_line, QImage.Format_RGB888).copy()
-        pix = QPixmap.fromImage(qimg).scaled(
-            self.video.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation
-        )
-        self.video.setPixmap(pix)
+        """Convert and display frame in QLabel"""
+        try:
+            rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+            h, w, ch = rgb.shape
+            bytes_per_line = ch * w
+            qimg = QImage(rgb.data, w, h, bytes_per_line, QImage.Format_RGB888).copy()
+            pix = QPixmap.fromImage(qimg).scaled(
+                self.video.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation
+            )
+            self.video.setPixmap(pix)
+        except Exception:
+            pass
 
     # ---- Scan button ----
     def on_scan_clicked(self):
+        """Handle scan button click"""
         if self.last_frame_bgr is None:
-            QMessageBox.warning(self, "Scan", "No camera frame yet. Hold still for a second.")
+            QMessageBox.warning(self, "Scan", "No camera frame yet. Please wait for camera feed.")
             return
         if self.last_result is None:
-            QMessageBox.warning(self, "Scan", "No detections yet. Wait 1–2 seconds then try again.")
+            QMessageBox.warning(self, "Scan", "No detections yet. Please wait 1-2 seconds.")
             return
 
         self.scan.setEnabled(False)
@@ -411,6 +470,7 @@ class ScannerPage(QWidget):
         self.worker.start()
 
     def on_scan_done(self, tray_avg, tray_grade, price_per_kg, pdf_path, kernel_results):
+        """Handle successful scan"""
         self.scan.setEnabled(True)
         self.scan.setText("Scan")
         self.set_instruction("Position Tray then Click Scan", scanning=False)
@@ -427,6 +487,7 @@ class ScannerPage(QWidget):
             )
             return
 
+        # Count defects and grades
         defect_counts = {}
         class_counts = {}
         for k in (kernel_results or []):
@@ -451,44 +512,27 @@ class ScannerPage(QWidget):
             )
             return
 
-        # Get max price for display and printing
+        # Get max price for display
         max_price = get_max_price_per_kg()
 
-        # Try to print ticket - WITH ERROR HANDLING
+        # Try to print ticket - with error handling
         try:
             from utils.ticket import print_ticket
 
             # Attempt to print
-            print_success = print_ticket(
+            print_ticket(
                 defect_lines=defect_lines,
                 grade_lines=grade_lines,
                 detected=detected,
                 tray_avg=tray_avg,
                 tray_grade=tray_grade,
                 price_per_kg=price_per_kg,
-                max_price_per_kg=max_price,  # Use the variable we defined
+                max_price_per_kg=max_price,
                 pdf_path=pdf_path
             )
-
-            # Optional: Show warning if printer failed
-            if not print_success:
-                # Just log it, don't show to user
-                print("Printer not available - continuing without receipt")
-                # Uncomment if you want to notify user:
-                # QMessageBox.warning(
-                #     self,
-                #     "Printer Not Available",
-                #     "Receipt could not be printed.\n"
-                #     "Scan results are still saved as PDF."
-                # )
-
-        except ImportError:
-            # Ticket module not available
-            print("Printer module not available - continuing without receipt")
-
-        except Exception as e:
-            # Any other printer error - just log it, don't crash
-            print(f"Printer error (non-critical): {e}")
+        except Exception:
+            # Silently ignore printer errors - non-critical
+            pass
 
         now = datetime.now()
         date_str = now.strftime("%Y-%m-%d")
@@ -498,7 +542,7 @@ class ScannerPage(QWidget):
                 "SCAN SUMMARY\n"
                 f"Date: {date_str}\n"
                 f"Time: {time_str}\n\n"
-                f"Max Price per Kg: Php{max_price:.2f}\n\n"  # Fixed: use max_price
+                f"Max Price per Kg: Php{max_price:.2f}\n\n"
                 "DEFECT COUNTS\n"
                 + "\n".join(defect_lines)
                 + "\n\nKERNELS PER CLASS\n"
@@ -513,6 +557,7 @@ class ScannerPage(QWidget):
         QMessageBox.information(self, "Scan Complete", msg)
 
     def on_scan_failed(self, msg: str):
+        """Handle scan failure"""
         self.scan.setEnabled(True)
         self.scan.setText("Scan")
         self.set_instruction("Position Tray then Click Scan", scanning=False)
