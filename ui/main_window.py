@@ -1,5 +1,5 @@
-#ui/main_window.py
-from PyQt5.QtCore import Qt, QSize,QTimer
+# ui/main_window.py
+from PyQt5.QtCore import Qt, QSize, QTimer
 from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QPushButton, QLabel,
     QHBoxLayout, QVBoxLayout, QStackedWidget,
@@ -96,7 +96,7 @@ class MainWindow(QMainWindow):
         side_layout.addWidget(self.btn_hist)
         side_layout.addWidget(self.btn_settings)
 
-        # Spacer pushes the status label to the bottom
+        # Spacer pushes the status labels to the bottom
         side_layout.addItem(QSpacerItem(20, 40, QSizePolicy.Minimum, QSizePolicy.Expanding))
 
         # -------- Camera Status --------
@@ -110,7 +110,22 @@ class MainWindow(QMainWindow):
                 font-size: 13px;
                 padding: 6px 10px;
                 border-radius: 10px;
-                background: #2e7d32;
+                background: #616161;
+            }
+        """)
+
+        # -------- Printer Status --------
+        self.printer_status = QLabel("🖨️ Printer: Checking...")
+        self.printer_status.setAlignment(Qt.AlignCenter)
+        self.printer_status.setFixedHeight(32)
+        self.printer_status.setStyleSheet("""
+            QLabel {
+                color: white;
+                font-weight: bold;
+                font-size: 13px;
+                padding: 6px 10px;
+                border-radius: 10px;
+                background: #ff9800;
             }
         """)
 
@@ -133,9 +148,11 @@ class MainWindow(QMainWindow):
         self.clock_timer.start(1000)  # update every second
         self.update_datetime()  # initialize immediately
 
-
+        # Add status widgets to side panel (in order: datetime, camera, printer)
         side_layout.addWidget(self.datetime_label)
         side_layout.addWidget(self.cam_status)
+        side_layout.addWidget(self.printer_status)
+
         root.addWidget(side_container)
 
         # -------- Pages --------
@@ -149,10 +166,13 @@ class MainWindow(QMainWindow):
         # Connect settings page signal to handle camera restart
         self.settings.settings_changed.connect(self.on_settings_changed)
 
-        self.stack.addWidget(self.home)     # index 0
+        # Connect scanner page signal to update printer status
+        self.scanner.printer_status_changed.connect(self.set_printer_status)
+
+        self.stack.addWidget(self.home)  # index 0
         self.stack.addWidget(self.scanner)  # index 1
         self.stack.addWidget(self.history)  # index 2
-        self.stack.addWidget(self.settings) # index 3
+        self.stack.addWidget(self.settings)  # index 3
 
         root.addWidget(self.stack, stretch=1)
 
@@ -164,6 +184,9 @@ class MainWindow(QMainWindow):
 
         # Start on Home page
         self.switch_page(0)
+
+        # Check printer status after UI is loaded
+        QTimer.singleShot(1000, self.check_printer_status)
 
     def update_datetime(self):
         now = datetime.now()
@@ -210,6 +233,46 @@ class MainWindow(QMainWindow):
             }}
         """)
 
+    def set_printer_status(self, status: str, connected: bool = True):
+        """
+        Update printer status display
+
+        Args:
+            status: Status text to display
+            connected: True if printer is connected/ready, False if error
+        """
+        if connected:
+            bg = "#2e7d32"  # green
+            icon = "🖨️"
+        else:
+            bg = "#c62828"  # red
+            icon = "⚠️"
+
+        self.printer_status.setText(f"{icon} Printer: {status}")
+        self.printer_status.setStyleSheet(f"""
+            QLabel {{
+                color: white;
+                font-weight: bold;
+                font-size: 13px;
+                padding: 6px 10px;
+                border-radius: 10px;
+                background: {bg};
+            }}
+        """)
+
+    def check_printer_status(self):
+        """Check printer connection status"""
+        try:
+            from utils.ticket import check_printer_connection
+            connected = check_printer_connection()
+            if connected:
+                self.set_printer_status("Ready", True)
+            else:
+                self.set_printer_status("Not Connected", False)
+        except Exception as e:
+            print(f"Printer check error: {e}")
+            self.set_printer_status("Error", False)
+
     def switch_page(self, index: int):
         self.stack.setCurrentIndex(index)
 
@@ -234,6 +297,9 @@ class MainWindow(QMainWindow):
         # history refresh
         if index == 2:
             self.history.refresh()
+
+        # Check printer status on every page change
+        QTimer.singleShot(100, self.check_printer_status)
 
     def closeEvent(self, event):
         try:

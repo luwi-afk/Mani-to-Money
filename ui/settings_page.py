@@ -512,11 +512,9 @@ class SettingsPage(QWidget):
             set_history_keep_days(keep_days)
 
             # --- Camera settings ---
-            # Verify all required widgets exist (they should, but safety first)
+            # Verify all required widgets exist
             required_attrs = [
-                'camera_brightness', 'camera_contrast', 'camera_saturation',
-                'camera_sharpness', 'camera_exposure', 'camera_red_gain',
-                'camera_blue_gain', 'camera_res', 'camera_fps',
+                'camera_res', 'camera_fps',
                 'camera_hflip', 'camera_vflip'
             ]
             missing = [attr for attr in required_attrs if not hasattr(self, attr)]
@@ -524,13 +522,6 @@ class SettingsPage(QWidget):
                 raise RuntimeError(f"Camera UI components missing: {missing}")
 
             camera_settings = {
-                "brightness": self.camera_brightness.value(),
-                "contrast": self.camera_contrast.value(),
-                "saturation": self.camera_saturation.value(),
-                "sharpness": self.camera_sharpness.value(),
-                "exposure": self.camera_exposure.value(),
-                "red_gain": self.camera_red_gain.value() / 100.0,
-                "blue_gain": self.camera_blue_gain.value() / 100.0,
                 "resolution": self.camera_res.currentText(),
                 "fps": int(self.camera_fps.currentText()),
                 "hflip": self.camera_hflip.isChecked(),
@@ -553,50 +544,20 @@ class SettingsPage(QWidget):
             )
 
     def create_camera_tab(self):
-        """Create camera settings tab with platform-aware enabled/disabled states"""
+        """Create camera settings tab with basic controls only"""
 
         camera_card = SettingsCard("Camera Settings")
 
-        is_windows = sys.platform.startswith("win")
         camera_settings = get_camera_settings()
 
-        # Create a scroll area for the camera card
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.NoFrame)
-        scroll.setStyleSheet("""
-            QScrollArea {
-                border: none;
-                background-color: transparent;
-            }
-            QScrollBar:vertical {
-                border: none;
-                background: #f0f0f0;
-                width: 10px;
-                border-radius: 5px;
-            }
-            QScrollBar::handle:vertical {
-                background: #c0c0c0;
-                border-radius: 5px;
-                min-height: 20px;
-            }
-            QScrollBar::handle:vertical:hover {
-                background: #a0a0a0;
-            }
-        """)
+        main_layout = QVBoxLayout()
+        main_layout.setSpacing(10)
+        main_layout.setContentsMargins(5, 5, 5, 5)
 
-        # Create content widget for scroll area
-        scroll_content = QWidget()
-        scroll_content.setStyleSheet("background-color: transparent;")
-
-        main_layout = QVBoxLayout(scroll_content)
-        main_layout.setContentsMargins(5, 5, 15, 5)  # Right margin for scrollbar
-        main_layout.setSpacing(10)  # Reduced spacing
-
-        # ===== ALWAYS ENABLED CONTROLS =====
+        # ===== BASIC CONTROLS =====
         enabled_grid = QGridLayout()
         enabled_grid.setColumnStretch(1, 1)
-        enabled_grid.setVerticalSpacing(12)  # Reduced from 15
+        enabled_grid.setVerticalSpacing(15)
         enabled_grid.setHorizontalSpacing(15)
 
         combo_style = """
@@ -605,8 +566,8 @@ class SettingsPage(QWidget):
                 color: #2c3e50;
                 border: 1px solid #e0e0e0;
                 border-radius: 5px;
-                padding: 6px;  /* Reduced from 8px */
-                min-height: 25px;  /* Reduced from 30px */
+                padding: 8px;
+                min-height: 30px;
                 font-size: 13px;
             }
         """
@@ -616,7 +577,7 @@ class SettingsPage(QWidget):
         self.camera_res = QComboBox()
         self.camera_res.addItems(["640x480", "800x600", "1024x768", "1280x720", "1920x1080"])
         self.camera_res.setCurrentText(camera_settings.get("resolution", "1280x720"))
-        self.camera_res.setMaximumWidth(160)  # Reduced from 180
+        self.camera_res.setMaximumWidth(180)
         self.camera_res.setStyleSheet(combo_style)
         enabled_grid.addWidget(self.camera_res, 0, 1)
 
@@ -625,7 +586,7 @@ class SettingsPage(QWidget):
         self.camera_fps = QComboBox()
         self.camera_fps.addItems(["15", "30", "60"])
         self.camera_fps.setCurrentText(str(camera_settings.get("fps", 30)))
-        self.camera_fps.setMaximumWidth(160)  # Reduced from 180
+        self.camera_fps.setMaximumWidth(180)
         self.camera_fps.setStyleSheet(combo_style)
         enabled_grid.addWidget(self.camera_fps, 1, 1)
 
@@ -634,7 +595,7 @@ class SettingsPage(QWidget):
         flip_widget = QWidget()
         flip_layout = QHBoxLayout(flip_widget)
         flip_layout.setContentsMargins(0, 0, 0, 0)
-        flip_layout.setSpacing(15)  # Reduced from 20
+        flip_layout.setSpacing(20)
 
         self.camera_hflip = QCheckBox("Horizontal")
         self.camera_hflip.setChecked(camera_settings.get("hflip", False))
@@ -651,134 +612,18 @@ class SettingsPage(QWidget):
 
         main_layout.addLayout(enabled_grid)
 
-        # ===== SEPARATOR with reduced spacing =====
-        main_layout.addSpacing(8)  # Reduced from 10
-        line = QFrame()
-        line.setFrameShape(QFrame.HLine)
-        line.setStyleSheet("background-color:#e0e0e0; max-height:1px;")
-        main_layout.addWidget(line)
-        main_layout.addSpacing(8)  # Reduced from 10
-
-        # ===== HEADER =====
-        header = QLabel(
-            "⛔ Advanced Controls (Disabled on Windows - RPi Camera Only)"
-            if is_windows else "⚙️ Advanced Controls"
-        )
-        header.setStyleSheet(
-            "color:#ff6b6b;font-weight:bold;font-size:12px;padding:3px 0px;"
-            if is_windows else
-            "color:#4a90e2;font-weight:bold;font-size:12px;padding:3px 0px;"
-        )
-        main_layout.addWidget(header)
-
-        # ===== ADVANCED CONTROLS =====
-        advanced_container = QWidget()
-        advanced_layout = QVBoxLayout(advanced_container)
-        advanced_layout.setContentsMargins(10, 10, 10, 10)  # Reduced from 15
-
-        advanced_grid = QGridLayout()
-        advanced_grid.setColumnStretch(0, 0)  # label
-        advanced_grid.setColumnStretch(1, 1)  # slider expands
-        advanced_grid.setColumnStretch(2, 0)  # value label
-
-        # Reduced vertical spacing
-        advanced_grid.setVerticalSpacing(18)  # Reduced from 25 to 18
-        advanced_grid.setHorizontalSpacing(15)  # Reduced from 20 to 15
-        advanced_grid.setContentsMargins(0, 2, 0, 2)
-
-        advanced_enabled = not is_windows
-        label_style = "color:#808080;font-size:12px;" if is_windows else "font-size:12px;"
-
-        def slider_row(row, text, attr, min_v, max_v, value, scale=1):
-            label = QLabel(text)
-            label.setStyleSheet(label_style + "padding:1px 0px;")
-            label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-            label.setMinimumWidth(100)  # Reduced from 120
-
-            slider = QSlider(Qt.Horizontal)
-            slider.setRange(min_v, max_v)
-            slider.setValue(value)
-            slider.setEnabled(advanced_enabled)
-            slider.setMinimumWidth(250)  # Reduced from 300
-            slider.setFixedHeight(24)  # Reduced from 30
-
-            # Style the slider
-            slider.setStyleSheet("""
-                QSlider::groove:horizontal {
-                    height: 6px;  /* Reduced from 8px */
-                    background: #e0e0e0;
-                    border-radius: 3px;
-                }
-                QSlider::handle:horizontal {
-                    background: #4a90e2;
-                    width: 18px;  /* Reduced from 20px */
-                    height: 18px;  /* Reduced from 20px */
-                    margin: -6px 0;
-                    border-radius: 9px;
-                }
-                QSlider::handle:horizontal:hover {
-                    background: #5aa0f2;
-                    width: 20px;  /* Slightly larger on hover */
-                    height: 20px;
-                }
-            """)
-
-            value_label = QLabel(
-                f"{value / scale:.2f}" if scale != 1 else str(value)
-            )
-            value_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-            value_label.setMinimumWidth(50)  # Reduced from 60
-            value_label.setStyleSheet(label_style + "font-weight:bold;")
-
-            slider.valueChanged.connect(
-                lambda v, l=value_label, s=scale:
-                l.setText(f"{v / s:.2f}" if s != 1 else str(v))
-            )
-
-            setattr(self, attr, slider)
-            setattr(self, f"{attr}_label", value_label)
-
-            advanced_grid.addWidget(label, row, 0)
-            advanced_grid.addWidget(slider, row, 1)
-            advanced_grid.addWidget(value_label, row, 2)
-
-        # Add the slider rows
-        rows = [
-            (0, "Brightness:", "camera_brightness", 0, 100, int(camera_settings.get("brightness", 50))),
-            (1, "Contrast:", "camera_contrast", -100, 100, int(camera_settings.get("contrast", 0))),
-            (2, "Saturation:", "camera_saturation", -100, 100, int(camera_settings.get("saturation", 0))),
-            (3, "Sharpness:", "camera_sharpness", -100, 100, int(camera_settings.get("sharpness", 0))),
-            (4, "Exposure:", "camera_exposure", -10, 10, int(camera_settings.get("exposure", 0))),
-            (5, "Red Gain:", "camera_red_gain", 0, 200, int(camera_settings.get("red_gain", 100) * 100), 100),
-            (6, "Blue Gain:", "camera_blue_gain", 0, 200, int(camera_settings.get("blue_gain", 100) * 100), 100)
-        ]
-
-        for row_params in rows:
-            slider_row(*row_params)
-
-        advanced_layout.addLayout(advanced_grid)
-
-        # Reduced bottom spacing
-        advanced_layout.addSpacing(5)
-
-        main_layout.addWidget(advanced_container)
-
-        # Reduced spacing before note
-        main_layout.addSpacing(5)
+        # Add some spacing
+        main_layout.addSpacing(20)
 
         # NOTE
         note = QLabel("Note: Changes apply after camera restart.")
-        note.setStyleSheet("color:#808080;font-size:11px;font-style:italic;padding:5px 0px;")
+        note.setStyleSheet("color:#808080;font-size:12px;font-style:italic;padding:10px 0px;")
         note.setAlignment(Qt.AlignCenter)
         main_layout.addWidget(note)
 
         # Add stretch to push content up
         main_layout.addStretch()
 
-        # Set the scroll content
-        scroll.setWidget(scroll_content)
-
-        # Add scroll to camera card
-        camera_card.addWidget(scroll)
+        camera_card.addLayout(main_layout)
 
         return camera_card

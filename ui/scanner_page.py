@@ -1,4 +1,4 @@
-#ui/scanner_page.py
+# ui/scanner_page.py
 import os
 import numpy as np
 from datetime import datetime
@@ -172,6 +172,9 @@ class OfflineScanWorker(QThread):
 
 
 class ScannerPage(QWidget):
+
+    printer_status_changed = pyqtSignal(str, bool)  # status text, connected flag
+
     def __init__(self):
         super().__init__()
 
@@ -244,8 +247,7 @@ class ScannerPage(QWidget):
     def start_camera(self):
         """Initialize and start camera"""
         try:
-            # Read resolution and FPS from settings (will be used on all platforms,
-            # but on RPi picamera2 will override with full settings anyway)
+            # Read resolution and FPS from settings
             from utils.app_settings import get_camera_resolution, get_camera_fps
             width, height = get_camera_resolution()
             fps = get_camera_fps()
@@ -520,10 +522,10 @@ class ScannerPage(QWidget):
         # Get max price for display
         max_price = get_max_price_per_kg()
 
-        # Try to print ticket - with error handling
+        # Try to print ticket - with error handling and status updates
         try:
             from utils.ticket import print_ticket
-            print_ticket(
+            success = print_ticket(
                 defect_lines=defect_lines,
                 grade_lines=grade_lines,
                 detected=detected,
@@ -531,10 +533,17 @@ class ScannerPage(QWidget):
                 tray_grade=tray_grade,
                 price_per_kg=price_per_kg,
                 max_price_per_kg=max_price,
-                pdf_path=pdf_path
             )
-        except Exception:
-            pass
+
+            # Update printer status based on result
+            if success:
+                self.printer_status_changed.emit("Ready", True)
+            else:
+                self.printer_status_changed.emit("Not Connected", False)
+
+        except Exception as e:
+            print(f"Ticket printing error: {e}")
+            self.printer_status_changed.emit("Error", False)
 
         now = datetime.now()
         date_str = now.strftime("%Y-%m-%d")

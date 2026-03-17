@@ -10,12 +10,6 @@ DEFAULTS = {
     "history_keep_days": 30,
     "settings_passcode": "0000",
     "camera": {
-        "brightness": 50,        # 0-100
-        "contrast": 50,           # 0-100
-        "saturation": 50,         # 0-100
-        "sharpness": 50,          # 0-100
-        "exposure": 0,            # -7 to 7
-        "awb_mode": "auto",       # auto, daylight, cloudy, etc.
         "resolution": "1280x720",  # 640x480, 1280x720, 1920x1080
         "fps": 30,                 # 15, 30, 60
         "hflip": False,            # Horizontal flip
@@ -144,36 +138,6 @@ def update_camera_settings(settings: dict) -> None:
     save_settings(s)
 
 
-def get_camera_brightness() -> int:
-    """Get camera brightness (0-100)"""
-    return get_camera_settings().get("brightness", 50)
-
-
-def get_camera_contrast() -> int:
-    """Get camera contrast (0-100)"""
-    return get_camera_settings().get("contrast", 50)
-
-
-def get_camera_saturation() -> int:
-    """Get camera saturation (0-100)"""
-    return get_camera_settings().get("saturation", 50)
-
-
-def get_camera_sharpness() -> int:
-    """Get camera sharpness (0-100)"""
-    return get_camera_settings().get("sharpness", 50)
-
-
-def get_camera_exposure() -> int:
-    """Get camera exposure (-7 to 7)"""
-    return get_camera_settings().get("exposure", 0)
-
-
-def get_camera_awb_mode() -> str:
-    """Get camera AWB mode"""
-    return get_camera_settings().get("awb_mode", "auto")
-
-
 def get_camera_resolution() -> tuple:
     """Get camera resolution as (width, height)"""
     res = get_camera_settings().get("resolution", "1280x720")
@@ -187,15 +151,6 @@ def get_camera_resolution() -> tuple:
 def get_camera_fps() -> int:
     """Get camera FPS"""
     return get_camera_settings().get("fps", 30)
-
-def get_camera_red_gain() -> float:
-    """Get red gain for white balance"""
-    return get_camera_settings().get("red_gain", 1.5)
-
-
-def get_camera_blue_gain() -> float:
-    """Get blue gain for white balance"""
-    return get_camera_settings().get("blue_gain", 1.8)
 
 
 def get_camera_hflip() -> bool:

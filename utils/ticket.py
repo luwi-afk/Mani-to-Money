@@ -1,51 +1,134 @@
 # utils/ticket.py
+
 import sys
 import serial
-from datetime import datetime
 import time
+from datetime import datetime
 
-# Auto-detect OS and set appropriate port
+# ========================
+# 🔌 SERIAL CONFIGURATION
+# ========================
+
+# Auto-detect OS port (CHANGE if needed)
 if sys.platform.startswith('win'):
-    SERIAL_PORT = 'COM3'  # Change to your Windows COM port
+    SERIAL_PORT = 'COM3'  # 🔁 Change to your actual COM port
 else:
-    SERIAL_PORT = '/dev/ttyUSB0'  # Linux/RPi
+    SERIAL_PORT = '/dev/ttyUSB0'
 
-# Adjust these constants to match your printer's settings
-BAUDRATE = 9600  # Common values: 9600, 19200, 38400
-TIMEOUT = 2  # Seconds - increased for reliability
+BAUDRATE = 9600  # Try 19200 or 38400 if needed
+TIMEOUT = 2
 
-# ESC/POS Commands
+# =================
+# ESC/POS COMMANDS
+# =================
+
 ESC = b'\x1b'
 GS = b'\x1d'
 
-# Printer initialization
+# Initialize
 INIT_PRINTER = ESC + b'@'
 
-# Text formatting
+# Text styles
 BOLD_ON = ESC + b'E\x01'
 BOLD_OFF = ESC + b'E\x00'
-UNDERLINE_ON = ESC + b'-\\x01'
-UNDERLINE_OFF = ESC + b'-\\x00'
-DOUBLE_HEIGHT_ON = ESC + b'!\\x10'
-DOUBLE_WIDTH_ON = ESC + b'!\\x20'
-NORMAL_TEXT = ESC + b'!\\x00'
+
+UNDERLINE_ON = ESC + b'-\x01'
+UNDERLINE_OFF = ESC + b'-\x00'
+
+DOUBLE_HEIGHT_ON = ESC + b'!\x10'
+DOUBLE_WIDTH_ON = ESC + b'!\x20'
+NORMAL_TEXT = ESC + b'!\x00'
 
 # Alignment
-ALIGN_LEFT = ESC + b'a\\x00'
-ALIGN_CENTER = ESC + b'a\\x01'
-ALIGN_RIGHT = ESC + b'a\\x02'
+ALIGN_LEFT = ESC + b'a\x00'
+ALIGN_CENTER = ESC + b'a\x01'
+ALIGN_RIGHT = ESC + b'a\x02'
 
 # Paper feed
 FEED_LINES = ESC + b'd'
-FEED_AND_CUT = GS + b'V\\x00'  # Full cut
-FEED_AND_PARTIAL_CUT = GS + b'V\\x01'  # Partial cut
 
 
-def safe_encode(text, encoding='ascii', errors='replace'):
-    """Safely encode text for the printer"""
+def safe_encode(text, encoding='cp437', errors='replace'):
+    """
+    Safely encode text for thermal printer.
+
+    Args:
+        text (str): Text to encode
+        encoding (str): Character encoding
+        errors (str): Error handling
+
+    Returns:
+        bytes
+    """
     if text is None:
         text = ""
+    # Replace PHP symbol with 'P' if encoding issues occur
+    text = text.replace('₱', 'P')
     return str(text).encode(encoding, errors=errors) + b'\n'
+
+
+def open_printer():
+    """
+    Open serial connection to printer.
+    """
+    return serial.Serial(
+        port=SERIAL_PORT,
+        baudrate=BAUDRATE,
+        timeout=TIMEOUT,
+        write_timeout=TIMEOUT
+    )
+
+
+def initialize_printer(ser):
+    """
+    Initialize printer and give it time to prepare.
+    """
+    ser.write(INIT_PRINTER)
+    time.sleep(0.1)
+
+
+def check_printer_connection():
+    """
+    Check if printer is connected and responsive.
+
+    Returns:
+        bool: True if printer is connected and ready, False otherwise
+    """
+    try:
+        ser = serial.Serial(
+            port=SERIAL_PORT,
+            baudrate=BAUDRATE,
+            timeout=1,
+            write_timeout=1
+        )
+
+        # Try to initialize printer
+        ser.write(INIT_PRINTER)
+        time.sleep(0.1)
+
+        # Try to read if printer sends any response
+        try:
+            ser.read(1)
+        except:
+            pass
+
+        ser.close()
+        return True
+
+    except serial.SerialException as e:
+        print(f"[DEBUG] Printer connection check failed: {e}")
+        return False
+    except Exception as e:
+        print(f"[DEBUG] Unexpected error checking printer: {e}")
+        return False
+
+
+def feed_lines(ser, n=3):
+    """
+    Feed paper by n lines.
+    """
+    ser.write(ESC + b'd' + bytes([n]))
+    time.sleep(0.05)
 
 
 def print_ticket(
@@ -55,46 +138,27 @@ def print_ticket(
         tray_avg,
         tray_grade,
         price_per_kg,
-        max_price_per_kg=None,  # Added this parameter
-        pdf_path=None  # Kept for compatibility
+        max_price_per_kg,
+        pdf_path=None
 ):
     """
-    Print a receipt directly to a thermal printer over serial.
-    Assumes the printer understands ESC/POS commands.
+    Print formatted receipt to thermal printer.
     """
     now = datetime.now()
     date_str = now.strftime("%Y-%m-%d")
     time_str = now.strftime("%H:%M:%S")
 
-    # Use default if not provided
-    if max_price_per_kg is None:
-        max_price_per_kg = 250.0
-
     try:
-        print(f"Attempting to print to {SERIAL_PORT} at {BAUDRATE} baud...")
+        print(f"[INFO] Connecting to printer on {SERIAL_PORT}...")
 
-        # Open serial connection
-        ser = serial.Serial(
-            port=SERIAL_PORT,
-            baudrate=BAUDRATE,
-            timeout=TIMEOUT,
-            bytesize=serial.EIGHTBITS,
-            parity=serial.PARITY_NONE,
-            stopbits=serial.STOPBITS_ONE,
-            xonxoff=False,
-            rtscts=False,
-            dsrdtr=False
-        )
-
-        # Give printer time to initialize
+        ser = open_printer()
         time.sleep(0.5)
 
-        # Initialize printer
-        ser.write(INIT_PRINTER)
-        time.sleep(0.1)
+        initialize_printer(ser)
 
-        # --- Header Section (Centered, Bold) ---
+        # ================= HEADER =================
         ser.write(ALIGN_CENTER)
+
         ser.write(DOUBLE_HEIGHT_ON + DOUBLE_WIDTH_ON)
         ser.write(safe_encode("MANI-TO-MONEY"))
         ser.write(NORMAL_TEXT)
@@ -103,82 +167,103 @@ def print_ticket(
         ser.write(safe_encode("Peanut Kernel Classifier"))
         ser.write(BOLD_OFF)
 
-        ser.write(safe_encode("with Score-based Pricing"))
-        ser.write(safe_encode(""))
+        ser.write(safe_encode("Score-based Pricing System"))
+        feed_lines(ser, 1)
 
-        # Date and time
+        # ================= DATE & TIME =================
         ser.write(ALIGN_LEFT)
         ser.write(safe_encode(f"Date: {date_str}"))
         ser.write(safe_encode(f"Time: {time_str}"))
-        ser.write(safe_encode(""))
+        feed_lines(ser, 1)
 
-        # Price info
         ser.write(safe_encode(f"Max Price: PHP {max_price_per_kg:.2f}/kg"))
-        ser.write(safe_encode(""))
+        feed_lines(ser, 1)
 
-        # --- Separator ---
+        # ================= SEPARATOR =================
         ser.write(ALIGN_CENTER)
         ser.write(safe_encode("=" * 32))
-        ser.write(safe_encode(""))
+        feed_lines(ser, 1)
 
-        # --- Summary Header ---
-        ser.write(BOLD_ON)
-        ser.write(DOUBLE_WIDTH_ON)
-        ser.write(safe_encode("SCAN SUMMARY"))
-        ser.write(NORMAL_TEXT + BOLD_OFF)
-        ser.write(safe_encode(""))
-
-        # --- Defect Counts ---
+        # ================= DEFECT COUNTS =================
         ser.write(ALIGN_LEFT)
         ser.write(BOLD_ON)
         ser.write(safe_encode("DEFECT COUNTS:"))
         ser.write(BOLD_OFF)
 
-        for line in defect_lines:
-            ser.write(safe_encode(f"  {line}"))
-        ser.write(safe_encode(""))
+        # Format defect lines exactly as in your example
+        if defect_lines:
+            for line in defect_lines:
+                # Ensure proper spacing
+                if ":" in line:
+                    parts = line.split(":", 1)
+                    formatted = f"{parts[0].strip()}: {parts[1].strip()}"
+                else:
+                    formatted = line
+                ser.write(safe_encode(f"  {formatted}"))
+        else:
+            ser.write(safe_encode("  No defects detected"))
 
-        # --- Kernel Counts ---
+        feed_lines(ser, 1)
+
+        # ================= KERNEL GRADES =================
         ser.write(BOLD_ON)
         ser.write(safe_encode("KERNELS PER CLASS:"))
         ser.write(BOLD_OFF)
 
-        ser.write(safe_encode(f"  Total detected: {detected}"))
-        for line in grade_lines:
-            ser.write(safe_encode(f"  {line}"))
-        ser.write(safe_encode(""))
+        ser.write(safe_encode(f"  Detected kernels: {detected}"))
 
-        # --- Results ---
+        if grade_lines:
+            for line in grade_lines:
+                # Format grade lines exactly as in your example
+                if ":" in line:
+                    parts = line.split(":", 1)
+                    formatted = f"{parts[0].strip()}: {parts[1].strip()}"
+                else:
+                    formatted = line
+                ser.write(safe_encode(f"  {formatted}"))
+        else:
+            ser.write(safe_encode("  No kernels detected"))
+
+        feed_lines(ser, 1)
+
+        # ================= FINAL RESULTS =================
         ser.write(BOLD_ON)
-        ser.write(safe_encode("RESULTS:"))
+        ser.write(safe_encode("FINAL RESULTS:"))
         ser.write(BOLD_OFF)
 
         ser.write(safe_encode(f"  Tray Avg Score: {tray_avg:.2f}"))
         ser.write(safe_encode(f"  Tray Avg Grade: {tray_grade}"))
-        ser.write(safe_encode(f"  Price: PHP {price_per_kg:.2f}/kg"))
-        ser.write(safe_encode(""))
+        ser.write(safe_encode(f"  Estimated Price: PHP {price_per_kg:.2f}/kg"))
 
-        # --- Footer ---
+        feed_lines(ser, 1)
+
+        # ================= PDF INFO =================
+        if pdf_path:
+            ser.write(safe_encode(""))
+            ser.write(safe_encode("PDF report saved"))
+            ser.write(safe_encode(f"at: {pdf_path}"))
+
+        feed_lines(ser, 1)
+
+        # ================= FOOTER =================
         ser.write(ALIGN_CENTER)
         ser.write(safe_encode("=" * 32))
-        ser.write(safe_encode(""))
         ser.write(safe_encode("Thank you!"))
         ser.write(safe_encode(""))
 
-        # Feed paper (4 lines)
-        ser.write(FEED_LINES + b'\x04')
-        time.sleep(0.1)
+        feed_lines(ser, 4)
 
-        # Cut paper
-        ser.write(FEED_AND_PARTIAL_CUT)  # Use partial cut for safety
-
-        # Flush and close
+        # Close connection
         ser.flush()
         ser.close()
 
-        print("Print job completed successfully")
+        print("[SUCCESS] Print completed.")
         return True
 
+    except serial.SerialException as e:
+        print(f"[ERROR] Printer connection failed: {e}")
+        print(f"[INFO] Make sure printer is connected to {SERIAL_PORT}")
+        return False
     except Exception as e:
-        print(f"Printing failed: {e}")
+        print(f"[ERROR] Printing failed: {e}")
         return False

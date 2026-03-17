@@ -23,7 +23,7 @@ def init_camera(index=0, width=1280, height=720, fps=30, use_picamera=True):
     """
     Initializes a single global camera instance.
     - On Windows: uses DirectShow (CAP_DSHOW) and sets resolution & FPS.
-    - On RPi: can use picamera2 for Camera Module 3 (applies all settings) or V4L2 for USB (only resolution & FPS).
+    - On RPi: can use picamera2 for Camera Module 3 or V4L2 for USB (only resolution & FPS).
     """
     global _camera, _using_picamera
 
@@ -75,14 +75,10 @@ def init_camera(index=0, width=1280, height=720, fps=30, use_picamera=True):
         # Try picamera2 first (for Camera Module 3)
         if use_picamera and PICAMERA_AVAILABLE:
             try:
-                # Load all camera settings from app_settings
+                # Load basic camera settings from app_settings
                 from utils.app_settings import (
-                    get_camera_brightness, get_camera_contrast,
-                    get_camera_saturation, get_camera_sharpness,
-                    get_camera_exposure, get_camera_red_gain,
-                    get_camera_blue_gain, get_camera_hflip,
-                    get_camera_vflip, get_camera_fps,
-                    get_camera_resolution
+                    get_camera_resolution, get_camera_fps,
+                    get_camera_hflip, get_camera_vflip
                 )
 
                 # Override with settings
@@ -90,36 +86,23 @@ def init_camera(index=0, width=1280, height=720, fps=30, use_picamera=True):
                 width = settings_width
                 height = settings_height
                 fps = get_camera_fps()
-
-                # Map UI values to picamera2 controls
-                brightness = get_camera_brightness() / 100.0          # 0-100 -> 0.0-1.0
-                contrast = get_camera_contrast() / 50.0               # 0-100 -> 0.0-2.0 (50->1.0)
-                saturation = get_camera_saturation() / 50.0           # same
-                sharpness = get_camera_sharpness() / 50.0             # same
-                exposure = float(get_camera_exposure())               # -7 to 7
-                red_gain = get_camera_red_gain()
-                blue_gain = get_camera_blue_gain()
                 hflip = get_camera_hflip()
                 vflip = get_camera_vflip()
+
+                # Create transform object
+                transform = Transform(hflip=hflip, vflip=vflip)
 
                 picam2 = Picamera2()
                 video_config = picam2.create_video_configuration(
                     main={"size": (width, height), "format": "RGB888"},
                     controls={
                         "FrameRate": fps,
-                        "AfMode": 1,                # continuous autofocus
-                        "AfSpeed": 1,                # fast
-                        "Brightness": brightness,
-                        "Contrast": contrast,
-                        "Sharpness": sharpness,
-                        "Saturation": saturation,
-                        "ExposureValue": exposure,
-                        "AeMeteringMode": 0,         # centre weighted
-                        "NoiseReductionMode": 1,      # fast
-                        "AwbEnable": 0,               # manual white balance
-                        "ColourGains": (red_gain, blue_gain)
+                        "AfMode": 1,
+                        "AfSpeed": 1,
+                        "Sharpness": 1.35,
+                        "NoiseReductionMode": 1
                     },
-                    transform=Transform(hflip=hflip, vflip=vflip)
+                    transform=transform  # Add this line
                 )
 
                 picam2.configure(video_config)
@@ -210,7 +193,6 @@ def read_camera():
         return False, None
     try:
         if _using_picamera:
-            # picamera2 already applies flips via Transform, no extra action needed
             frame = _camera.capture_array()
             if frame is not None and frame.size > 0:
                 frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
@@ -240,6 +222,7 @@ def read_camera():
     except Exception as e:
         print(f"read_camera error: {e}")
         return False, None
+
 
 def release_camera():
     global _camera, _using_picamera
