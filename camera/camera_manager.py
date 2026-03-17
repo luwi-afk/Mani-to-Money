@@ -105,7 +105,7 @@ def init_camera(index=0, width=1280, height=720, fps=30, use_picamera=True):
                         # CRITICAL FOR COLOR CORRECTION:
                         "AwbMode": 0,  # 0 = Auto White Balance
                         "AwbEnable": 1,  # Enable auto white balance
-                        "ColourGains": (1.5, 1.5),  # Optional: manual gains if auto isn't enough
+                        #"ColourGains": (1.5, 1.5),  # Optional: manual gains if auto isn't enough
 
                         # Also helpful for LED lighting:
                         "Brightness": 0.0,
