@@ -5,7 +5,7 @@
   "settings_passcode": "0000",
   "camera": {
     "resolution": "1280x720",
-    "fps": 30,
+    "fps": 15,
     "hflip": false,
     "vflip": false
   }

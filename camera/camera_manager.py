@@ -100,9 +100,19 @@ def init_camera(index=0, width=1280, height=720, fps=30, use_picamera=True):
                         "AfMode": 1,
                         "AfSpeed": 1,
                         "Sharpness": 1.35,
-                        "NoiseReductionMode": 1
+                        "NoiseReductionMode": 1,
+
+                        # CRITICAL FOR COLOR CORRECTION:
+                        "AwbMode": 0,  # 0 = Auto White Balance
+                        "AwbEnable": 1,  # Enable auto white balance
+                        "ColourGains": (1.5, 1.5),  # Optional: manual gains if auto isn't enough
+
+                        # Also helpful for LED lighting:
+                        "Brightness": 0.0,
+                        "Contrast": 1.0,
+                        "Saturation": 1.0,
                     },
-                    transform=transform  # Add this line
+                    transform=transform
                 )
 
                 picam2.configure(video_config)
