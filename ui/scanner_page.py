@@ -533,6 +533,7 @@ class ScannerPage(QWidget):
                 tray_grade=tray_grade,
                 price_per_kg=price_per_kg,
                 max_price_per_kg=max_price,
+                pdf_path=pdf_path
             )
 
             # Update printer status based on result

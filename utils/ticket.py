@@ -1,22 +1,26 @@
 # utils/ticket.py
 
 import sys
-import serial
 import time
+import os
 from datetime import datetime
 
 # ========================
-# 🔌 SERIAL CONFIGURATION
+# 🔌 PRINTER CONFIGURATION
 # ========================
 
 # Auto-detect OS port (CHANGE if needed)
 if sys.platform.startswith('win'):
-    SERIAL_PORT = 'COM3'  # 🔁 Change to your actual COM port
+    PRINTER_DEVICE = 'COM3'
 else:
-    SERIAL_PORT = '/dev/ttyUSB0'
+    # USB printer on Linux
+    PRINTER_DEVICE = '/dev/usb/lp0'
 
-BAUDRATE = 9600  # Try 19200 or 38400 if needed
-TIMEOUT = 2
+# =================
+# PAPER CONFIGURATION
+# =================
+PAPER_WIDTH_58MM = 32  # 32 characters for 58mm paper with normal font
+PAPER_WIDTH_80MM = 42  # For reference
 
 # =================
 # ESC/POS COMMANDS
@@ -47,43 +51,105 @@ ALIGN_RIGHT = ESC + b'a\x02'
 # Paper feed
 FEED_LINES = ESC + b'd'
 
+# Line spacing
+LINE_SPACING_30 = ESC + b'3\x1e'  # 30 dots line spacing
 
-def safe_encode(text, encoding='cp437', errors='replace'):
+
+def get_max_chars(double_width=False):
+    """Get max characters per line based on font mode"""
+    if double_width:
+        return PAPER_WIDTH_58MM // 2  # 16 chars when double width
+    return PAPER_WIDTH_58MM  # 32 chars normal
+
+
+def wrap_text(text, max_chars=PAPER_WIDTH_58MM):
     """
-    Safely encode text for thermal printer.
+    Wrap text to fit thermal paper width.
+    Preserves existing line breaks and wraps long lines.
+    """
+    if not text:
+        return []
 
-    Args:
-        text (str): Text to encode
-        encoding (str): Character encoding
-        errors (str): Error handling
+    lines = []
+    for paragraph in text.split('\n'):
+        # If line is short enough, keep as is
+        if len(paragraph) <= max_chars:
+            lines.append(paragraph)
+        else:
+            # Wrap long lines
+            words = paragraph.split(' ')
+            current_line = []
+            current_length = 0
 
-    Returns:
-        bytes
+            for word in words:
+                word_len = len(word)
+                # +1 for space
+                if current_length + word_len + (1 if current_line else 0) <= max_chars:
+                    if current_line:
+                        current_line.append(' ')
+                        current_length += 1
+                    current_line.append(word)
+                    current_length += word_len
+                else:
+                    if current_line:
+                        lines.append(''.join(current_line))
+                    # Start new line with this word
+                    current_line = [word]
+                    current_length = word_len
+
+            if current_line:
+                lines.append(''.join(current_line))
+
+    return lines
+
+
+def safe_encode(text, encoding='cp437', errors='replace', max_chars=None):
+    """
+    encode text for thermal printer with optional wrapping.
     """
     if text is None:
         text = ""
+
     # Replace PHP symbol with 'P' if encoding issues occur
     text = text.replace('₱', 'P')
-    return str(text).encode(encoding, errors=errors) + b'\n'
+
+    # Wrap text if max_chars specified
+    if max_chars:
+        lines = wrap_text(text, max_chars)
+        result = b''
+        for line in lines:
+            result += str(line).encode(encoding, errors=errors) + b'\n'
+        return result
+    else:
+        return str(text).encode(encoding, errors=errors) + b'\n'
 
 
 def open_printer():
     """
-    Open serial connection to printer.
+    Open USB printer device.
     """
-    return serial.Serial(
-        port=SERIAL_PORT,
-        baudrate=BAUDRATE,
-        timeout=TIMEOUT,
-        write_timeout=TIMEOUT
-    )
+    try:
+        # Try to open as file (USB printer)
+        return open(PRINTER_DEVICE, 'wb')
+    except Exception as e:
+        print(f"[ERROR] Cannot open printer {PRINTER_DEVICE}: {e}")
+
+        # Fallback: try alternative location
+        if PRINTER_DEVICE == '/dev/usb/lp0':
+            try:
+                alt_device = '/dev/lp0'
+                print(f"[INFO] Trying alternative: {alt_device}")
+                return open(alt_device, 'wb')
+            except:
+                pass
+        raise
 
 
-def initialize_printer(ser):
+def initialize_printer(printer):
     """
     Initialize printer and give it time to prepare.
     """
-    ser.write(INIT_PRINTER)
+    printer.write(INIT_PRINTER)
     time.sleep(0.1)
 
 
@@ -94,40 +160,36 @@ def check_printer_connection():
     Returns:
         bool: True if printer is connected and ready, False otherwise
     """
-    try:
-        ser = serial.Serial(
-            port=SERIAL_PORT,
-            baudrate=BAUDRATE,
-            timeout=1,
-            write_timeout=1
-        )
+    devices_to_try = ['/dev/usb/lp0', '/dev/lp0']
 
-        # Try to initialize printer
-        ser.write(INIT_PRINTER)
-        time.sleep(0.1)
-
-        # Try to read if printer sends any response
+    for device in devices_to_try:
         try:
-            ser.read(1)
+            # Just test if we can open the device
+            with open(device, 'ab'):
+                pass
+            print(f"[INFO] Printer found at {device}")
+            return True
+        except:
+            continue
+
+    # Also check if it's a serial device (fallback for Windows)
+    if sys.platform.startswith('win'):
+        try:
+            import serial
+            ser = serial.Serial('COM3', timeout=1)
+            ser.close()
+            return True
         except:
             pass
 
-        ser.close()
-        return True
-
-    except serial.SerialException as e:
-        print(f"[DEBUG] Printer connection check failed: {e}")
-        return False
-    except Exception as e:
-        print(f"[DEBUG] Unexpected error checking printer: {e}")
-        return False
+    return False
 
 
-def feed_lines(ser, n=3):
+def feed_lines(printer, n=3):
     """
     Feed paper by n lines.
     """
-    ser.write(ESC + b'd' + bytes([n]))
+    printer.write(ESC + b'd' + bytes([n]))
     time.sleep(0.05)
 
 
@@ -149,121 +211,125 @@ def print_ticket(
     time_str = now.strftime("%H:%M:%S")
 
     try:
-        print(f"[INFO] Connecting to printer on {SERIAL_PORT}...")
+        print(f"[INFO] Connecting to printer on {PRINTER_DEVICE}...")
 
-        ser = open_printer()
+        printer = open_printer()
         time.sleep(0.5)
 
-        initialize_printer(ser)
+        initialize_printer(printer)
+
+        # Set line spacing for better formatting
+        printer.write(LINE_SPACING_30)
 
         # ================= HEADER =================
-        ser.write(ALIGN_CENTER)
+        printer.write(ALIGN_CENTER)
 
-        ser.write(DOUBLE_HEIGHT_ON + DOUBLE_WIDTH_ON)
-        ser.write(safe_encode("MANI-TO-MONEY"))
-        ser.write(NORMAL_TEXT)
+        # Double width text has half the character capacity
+        printer.write(DOUBLE_HEIGHT_ON + DOUBLE_WIDTH_ON)
+        printer.write(safe_encode("MANI-TO-MONEY", max_chars=get_max_chars(double_width=True)))
+        printer.write(NORMAL_TEXT)
 
-        ser.write(BOLD_ON)
-        ser.write(safe_encode("Peanut Kernel Classifier"))
-        ser.write(BOLD_OFF)
+        printer.write(BOLD_ON)
+        printer.write(safe_encode("Peanut Kernel Classifier", max_chars=PAPER_WIDTH_58MM))
+        printer.write(BOLD_OFF)
 
-        ser.write(safe_encode("Score-based Pricing System"))
-        feed_lines(ser, 1)
+        printer.write(safe_encode("Score-based Pricing System", max_chars=PAPER_WIDTH_58MM))
+        feed_lines(printer, 1)
 
         # ================= DATE & TIME =================
-        ser.write(ALIGN_LEFT)
-        ser.write(safe_encode(f"Date: {date_str}"))
-        ser.write(safe_encode(f"Time: {time_str}"))
-        feed_lines(ser, 1)
+        printer.write(ALIGN_LEFT)
+        printer.write(safe_encode(f"Date: {date_str}", max_chars=PAPER_WIDTH_58MM))
+        printer.write(safe_encode(f"Time: {time_str}", max_chars=PAPER_WIDTH_58MM))
+        feed_lines(printer, 1)
 
-        ser.write(safe_encode(f"Max Price: PHP {max_price_per_kg:.2f}/kg"))
-        feed_lines(ser, 1)
+        printer.write(safe_encode(f"Max Price: PHP {max_price_per_kg:.2f}/kg",
+                                  max_chars=PAPER_WIDTH_58MM))
+        feed_lines(printer, 1)
 
         # ================= SEPARATOR =================
-        ser.write(ALIGN_CENTER)
-        ser.write(safe_encode("=" * 32))
-        feed_lines(ser, 1)
+        printer.write(ALIGN_CENTER)
+        printer.write(safe_encode("=" * 32, max_chars=PAPER_WIDTH_58MM))
+        feed_lines(printer, 1)
 
         # ================= DEFECT COUNTS =================
-        ser.write(ALIGN_LEFT)
-        ser.write(BOLD_ON)
-        ser.write(safe_encode("DEFECT COUNTS:"))
-        ser.write(BOLD_OFF)
+        printer.write(ALIGN_LEFT)
+        printer.write(BOLD_ON)
+        printer.write(safe_encode("DEFECT COUNTS:", max_chars=PAPER_WIDTH_58MM))
+        printer.write(BOLD_OFF)
 
-        # Format defect lines exactly as in your example
         if defect_lines:
             for line in defect_lines:
-                # Ensure proper spacing
                 if ":" in line:
                     parts = line.split(":", 1)
                     formatted = f"{parts[0].strip()}: {parts[1].strip()}"
                 else:
                     formatted = line
-                ser.write(safe_encode(f"  {formatted}"))
+                printer.write(safe_encode(f"  {formatted}", max_chars=PAPER_WIDTH_58MM))
         else:
-            ser.write(safe_encode("  No defects detected"))
+            printer.write(safe_encode("  No defects detected", max_chars=PAPER_WIDTH_58MM))
 
-        feed_lines(ser, 1)
+        feed_lines(printer, 1)
 
         # ================= KERNEL GRADES =================
-        ser.write(BOLD_ON)
-        ser.write(safe_encode("KERNELS PER CLASS:"))
-        ser.write(BOLD_OFF)
+        printer.write(BOLD_ON)
+        printer.write(safe_encode("KERNELS PER CLASS:", max_chars=PAPER_WIDTH_58MM))
+        printer.write(BOLD_OFF)
 
-        ser.write(safe_encode(f"  Detected kernels: {detected}"))
+        printer.write(safe_encode(f"  Detected kernels: {detected}", max_chars=PAPER_WIDTH_58MM))
 
         if grade_lines:
             for line in grade_lines:
-                # Format grade lines exactly as in your example
                 if ":" in line:
                     parts = line.split(":", 1)
                     formatted = f"{parts[0].strip()}: {parts[1].strip()}"
                 else:
                     formatted = line
-                ser.write(safe_encode(f"  {formatted}"))
+                printer.write(safe_encode(f"  {formatted}", max_chars=PAPER_WIDTH_58MM))
         else:
-            ser.write(safe_encode("  No kernels detected"))
+            printer.write(safe_encode("  No kernels detected", max_chars=PAPER_WIDTH_58MM))
 
-        feed_lines(ser, 1)
+        feed_lines(printer, 1)
 
         # ================= FINAL RESULTS =================
-        ser.write(BOLD_ON)
-        ser.write(safe_encode("FINAL RESULTS:"))
-        ser.write(BOLD_OFF)
+        printer.write(BOLD_ON)
+        printer.write(safe_encode("FINAL RESULTS:", max_chars=PAPER_WIDTH_58MM))
+        printer.write(BOLD_OFF)
 
-        ser.write(safe_encode(f"  Tray Avg Score: {tray_avg:.2f}"))
-        ser.write(safe_encode(f"  Tray Avg Grade: {tray_grade}"))
-        ser.write(safe_encode(f"  Estimated Price: PHP {price_per_kg:.2f}/kg"))
+        printer.write(safe_encode(f"  Tray Avg Score: {tray_avg:.2f}", max_chars=PAPER_WIDTH_58MM))
+        printer.write(safe_encode(f"  Tray Avg Grade: {tray_grade}", max_chars=PAPER_WIDTH_58MM))
+        printer.write(safe_encode(f"  Estimated Price: PHP {price_per_kg:.2f}/kg",
+                                  max_chars=PAPER_WIDTH_58MM))
 
-        feed_lines(ser, 1)
+        feed_lines(printer, 1)
 
         # ================= PDF INFO =================
         if pdf_path:
-            ser.write(safe_encode(""))
-            ser.write(safe_encode("PDF report saved"))
-            ser.write(safe_encode(f"at: {pdf_path}"))
+            printer.write(safe_encode("", max_chars=PAPER_WIDTH_58MM))
+            printer.write(safe_encode("PDF report saved:", max_chars=PAPER_WIDTH_58MM))
 
-        feed_lines(ser, 1)
+            # Just show filename (cleanest for thermal receipt)
+            short_path = os.path.basename(pdf_path)
+            printer.write(safe_encode(f"📄 {short_path}", max_chars=PAPER_WIDTH_58MM))
+
+        feed_lines(printer, 1)
 
         # ================= FOOTER =================
-        ser.write(ALIGN_CENTER)
-        ser.write(safe_encode("=" * 32))
-        ser.write(safe_encode("Thank you!"))
-        ser.write(safe_encode(""))
+        printer.write(ALIGN_CENTER)
+        printer.write(safe_encode("=" * 32, max_chars=PAPER_WIDTH_58MM))
+        printer.write(safe_encode("Thank you!", max_chars=PAPER_WIDTH_58MM))
+        printer.write(safe_encode(""))
 
-        feed_lines(ser, 4)
+        feed_lines(printer, 4)
 
         # Close connection
-        ser.flush()
-        ser.close()
+        printer.flush()
+        printer.close()
 
         print("[SUCCESS] Print completed.")
         return True
 
-    except serial.SerialException as e:
-        print(f"[ERROR] Printer connection failed: {e}")
-        print(f"[INFO] Make sure printer is connected to {SERIAL_PORT}")
-        return False
     except Exception as e:
         print(f"[ERROR] Printing failed: {e}")
+        print(f"[INFO] Make sure printer is connected to {PRINTER_DEVICE}")
+        print(f"[INFO] Try: ls /dev/usb/lp* or ls /dev/lp* to find your printer")
         return False
