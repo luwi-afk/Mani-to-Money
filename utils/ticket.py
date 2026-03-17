@@ -9,50 +9,18 @@ from datetime import datetime
 # 🔌 PRINTER CONFIGURATION
 # ========================
 
-# Auto-detect OS port (CHANGE if needed)
+# Auto-detect OS port
 if sys.platform.startswith('win'):
     PRINTER_DEVICE = 'COM3'
 else:
-    # USB printer on Linux
-    PRINTER_DEVICE = '/dev/usb/lp0'
+    # USB printer on Linux - CORRECT PATH
+    PRINTER_DEVICE = '/dev/usb/lp0'  # Standard USB printer path
+    ALT_PRINTER_DEVICE = '/dev/lp0'  # Alternative path
 
 # =================
 # PAPER CONFIGURATION
 # =================
-PAPER_WIDTH_58MM = 32  # 32 characters for 58mm paper with normal font
-PAPER_WIDTH_80MM = 42  # For reference
-
-# =================
-# ESC/POS COMMANDS
-# =================
-
-ESC = b'\x1b'
-GS = b'\x1d'
-
-# Initialize
-INIT_PRINTER = ESC + b'@'
-
-# Text styles
-BOLD_ON = ESC + b'E\x01'
-BOLD_OFF = ESC + b'E\x00'
-
-UNDERLINE_ON = ESC + b'-\x01'
-UNDERLINE_OFF = ESC + b'-\x00'
-
-DOUBLE_HEIGHT_ON = ESC + b'!\x10'
-DOUBLE_WIDTH_ON = ESC + b'!\x20'
-NORMAL_TEXT = ESC + b'!\x00'
-
-# Alignment
-ALIGN_LEFT = ESC + b'a\x00'
-ALIGN_CENTER = ESC + b'a\x01'
-ALIGN_RIGHT = ESC + b'a\x02'
-
-# Paper feed
-FEED_LINES = ESC + b'd'
-
-# Line spacing
-LINE_SPACING_30 = ESC + b'3\x1e'  # 30 dots line spacing
+PAPER_WIDTH_58MM = 32  # 32 characters for 58mm paper
 
 
 def get_max_chars(double_width=False):
@@ -124,25 +92,80 @@ def safe_encode(text, encoding='cp437', errors='replace', max_chars=None):
         return str(text).encode(encoding, errors=errors) + b'\n'
 
 
+# =================
+# ESC/POS COMMANDS
+# =================
+
+ESC = b'\x1b'
+GS = b'\x1d'
+
+# Initialize
+INIT_PRINTER = ESC + b'@'
+
+# Text styles
+BOLD_ON = ESC + b'E\x01'
+BOLD_OFF = ESC + b'E\x00'
+
+UNDERLINE_ON = ESC + b'-\x01'
+UNDERLINE_OFF = ESC + b'-\x00'
+
+DOUBLE_HEIGHT_ON = ESC + b'!\x10'
+DOUBLE_WIDTH_ON = ESC + b'!\x20'
+NORMAL_TEXT = ESC + b'!\x00'
+
+# Alignment
+ALIGN_LEFT = ESC + b'a\x00'
+ALIGN_CENTER = ESC + b'a\x01'
+ALIGN_RIGHT = ESC + b'a\x02'
+
+# Paper feed
+FEED_LINES = ESC + b'd'
+
+# Line spacing
+LINE_SPACING_30 = ESC + b'3\x1e'  # 30 dots line spacing
+
+
 def open_printer():
     """
-    Open USB printer device.
+    Open USB printer device with proper error handling.
+    Only tries correct printer paths.
     """
-    try:
-        # Try to open as file (USB printer)
-        return open(PRINTER_DEVICE, 'wb')
-    except Exception as e:
-        print(f"[ERROR] Cannot open printer {PRINTER_DEVICE}: {e}")
+    # Only try the correct printer device paths
+    devices_to_try = [PRINTER_DEVICE, ALT_PRINTER_DEVICE]
 
-        # Fallback: try alternative location
-        if PRINTER_DEVICE == '/dev/usb/lp0':
-            try:
-                alt_device = '/dev/lp0'
-                print(f"[INFO] Trying alternative: {alt_device}")
-                return open(alt_device, 'wb')
-            except:
-                pass
-        raise
+    for device in devices_to_try:
+        try:
+            print(f"[INFO] Attempting to open printer at {device}...")
+            printer = open(device, 'wb')
+
+            # Test write to verify it's working
+            printer.write(b'\x1b\x40')  # Initialize printer
+            printer.flush()
+
+            print(f"✅ SUCCESS! Printer connected on {device}")
+            return printer
+
+        except FileNotFoundError:
+            print(f"❌ {device} not found")
+            continue
+        except PermissionError:
+            print(f"❌ Permission denied for {device}")
+            print(f"   Fix: sudo usermod -a -G lp $USER")
+            print(f"   Then LOG OUT and log back in")
+            continue
+        except Exception as e:
+            print(f"❌ {device}: {e}")
+            continue
+
+    # If we get here, no devices worked
+    error_msg = f"No printer found. Tried: {devices_to_try}"
+    print(f"🔥 ERROR: {error_msg}")
+    print("\nTroubleshooting:")
+    print("1. Check printer is connected: lsusb | grep -i printer")
+    print("2. Check device exists: ls -la /dev/usb/lp0")
+    print("3. Fix permissions: sudo usermod -a -G lp $USER")
+    print("4. Then LOG OUT and log back in")
+    raise Exception(error_msg)
 
 
 def initialize_printer(printer):
@@ -156,9 +179,6 @@ def initialize_printer(printer):
 def check_printer_connection():
     """
     Check if printer is connected and responsive.
-
-    Returns:
-        bool: True if printer is connected and ready, False otherwise
     """
     devices_to_try = ['/dev/usb/lp0', '/dev/lp0']
 
@@ -167,21 +187,18 @@ def check_printer_connection():
             # Just test if we can open the device
             with open(device, 'ab'):
                 pass
-            print(f"[INFO] Printer found at {device}")
+            print(f"✅ Printer found at {device}")
             return True
+        except FileNotFoundError:
+            continue
+        except PermissionError:
+            print(f"⚠️  Printer found but permission denied at {device}")
+            print(f"   Run: sudo usermod -a -G lp $USER")
+            return False
         except:
             continue
 
-    # Also check if it's a serial device (fallback for Windows)
-    if sys.platform.startswith('win'):
-        try:
-            import serial
-            ser = serial.Serial('COM3', timeout=1)
-            ser.close()
-            return True
-        except:
-            pass
-
+    print("❌ No printer found")
     return False
 
 
@@ -211,11 +228,15 @@ def print_ticket(
     time_str = now.strftime("%H:%M:%S")
 
     try:
-        print(f"[INFO] Connecting to printer on {PRINTER_DEVICE}...")
+        print("\n" + "=" * 50)
+        print("🖨️  THERMAL PRINTER TICKET")
+        print("=" * 50)
 
+        # Only try to open printer - no other paths!
         printer = open_printer()
         time.sleep(0.5)
 
+        print("[INFO] Initializing printer...")
         initialize_printer(printer)
 
         # Set line spacing for better formatting
@@ -325,11 +346,19 @@ def print_ticket(
         printer.flush()
         printer.close()
 
-        print("[SUCCESS] Print completed.")
+        print("✅" * 20)
+        print("✅ PRINT SUCCESSFUL! Ticket printed.")
+        print("✅" * 20)
         return True
 
     except Exception as e:
-        print(f"[ERROR] Printing failed: {e}")
-        print(f"[INFO] Make sure printer is connected to {PRINTER_DEVICE}")
-        print(f"[INFO] Try: ls /dev/usb/lp* or ls /dev/lp* to find your printer")
+        print("\n" + "!" * 50)
+        print("❌ PRINT FAILED")
+        print(f"Error: {e}")
+        print("\nTroubleshooting:")
+        print("1. Check printer is connected: lsusb | grep -i printer")
+        print("2. Check device exists: ls -la /dev/usb/lp0")
+        print("3. Fix permissions: sudo usermod -a -G lp $USER")
+        print("4. Then LOG OUT and log back in")
+        print("5. Test with: echo 'test' > /dev/usb/lp0")
         return False

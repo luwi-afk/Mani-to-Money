@@ -109,8 +109,8 @@ def init_camera(index=0, width=1280, height=720, fps=30, use_picamera=True):
 
                         # Also helpful for LED lighting:
                         "Brightness": 0.0,
-                        "Contrast": 1.0,
-                        "Saturation": 1.0,
+                        "Contrast": 0.0,
+                        "Saturation": 0.0,
                     },
                     transform=transform
                 )
