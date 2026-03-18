@@ -19,7 +19,7 @@ class PeanutDetector:
         self.net.load_param(param_path)
         self.net.load_model(bin_path)
 
-        self.imgsz = 640
+        self.imgsz = 1280
         self.class_names = ["broken", "moldy", "peanut_kernel", "pest_damage", "shriveled"]
         self.num_classes = len(self.class_names)
         self.names_dict = {i: name for i, name in enumerate(self.class_names)}

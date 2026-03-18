@@ -575,7 +575,7 @@ class SettingsPage(QWidget):
         # Resolution
         enabled_grid.addWidget(QLabel("Resolution:"), 0, 0)
         self.camera_res = QComboBox()
-        self.camera_res.addItems(["640x480", "800x600", "1024x768", "1280x720", "1920x1080"])
+        self.camera_res.addItems(["640x480", "800x600", "1024x768", "1280x720", "1920x1080", "2304x1296", "4608x2592"])
         self.camera_res.setCurrentText(camera_settings.get("resolution", "1280x720"))
         self.camera_res.setMaximumWidth(180)
         self.camera_res.setStyleSheet(combo_style)

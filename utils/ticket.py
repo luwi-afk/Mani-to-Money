@@ -135,14 +135,12 @@ def open_printer():
 
     for device in devices_to_try:
         try:
-            print(f"[INFO] Attempting to open printer at {device}...")
             printer = open(device, 'wb')
 
             # Test write to verify it's working
             printer.write(b'\x1b\x40')  # Initialize printer
             printer.flush()
 
-            print(f"✅ SUCCESS! Printer connected on {device}")
             return printer
 
         except FileNotFoundError:
@@ -160,11 +158,6 @@ def open_printer():
     # If we get here, no devices worked
     error_msg = f"No printer found. Tried: {devices_to_try}"
     print(f"🔥 ERROR: {error_msg}")
-    print("\nTroubleshooting:")
-    print("1. Check printer is connected: lsusb | grep -i printer")
-    print("2. Check device exists: ls -la /dev/usb/lp0")
-    print("3. Fix permissions: sudo usermod -a -G lp $USER")
-    print("4. Then LOG OUT and log back in")
     raise Exception(error_msg)
 
 
@@ -228,15 +221,11 @@ def print_ticket(
     time_str = now.strftime("%H:%M:%S")
 
     try:
-        print("\n" + "=" * 50)
-        print("🖨️  THERMAL PRINTER TICKET")
-        print("=" * 50)
 
         # Only try to open printer - no other paths!
         printer = open_printer()
         time.sleep(0.5)
 
-        print("[INFO] Initializing printer...")
         initialize_printer(printer)
 
         # Set line spacing for better formatting
@@ -346,19 +335,9 @@ def print_ticket(
         printer.flush()
         printer.close()
 
-        print("✅" * 20)
-        print("✅ PRINT SUCCESSFUL! Ticket printed.")
-        print("✅" * 20)
         return True
 
     except Exception as e:
-        print("\n" + "!" * 50)
         print("❌ PRINT FAILED")
         print(f"Error: {e}")
-        print("\nTroubleshooting:")
-        print("1. Check printer is connected: lsusb | grep -i printer")
-        print("2. Check device exists: ls -la /dev/usb/lp0")
-        print("3. Fix permissions: sudo usermod -a -G lp $USER")
-        print("4. Then LOG OUT and log back in")
-        print("5. Test with: echo 'test' > /dev/usb/lp0")
         return False
