@@ -4,8 +4,8 @@
   "history_keep_days": 30,
   "settings_passcode": "0000",
   "camera": {
-    "resolution": "1280x720",
-    "fps": 15,
+    "resolution": "4608x2592",
+    "fps": 60,
     "hflip": false,
     "vflip": false
   }
