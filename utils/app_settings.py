@@ -10,7 +10,7 @@ DEFAULTS = {
     "history_keep_days": 30,
     "settings_passcode": "0000",
     "camera": {
-        "resolution": "1280x720",
+        "resolution": "1280x960",
         "fps": 30,                 # 15, 30, 60
         "hflip": False,            # Horizontal flip
         "vflip": False             # Vertical flip

@@ -53,7 +53,7 @@ class PeanutDetector:
         self.input_name = "in0"
         self.output_name = "out0"
 
-    def predict(self, frame_bgr, conf=0.25, imgsz=640):
+    def predict(self, frame_bgr, conf=0.10, imgsz=640):
         detections = run_yolo(self.net, frame_bgr, imgsz)   # returns numpy array Nx6
         if detections is None or len(detections) == 0:
             return DetectionResult(np.empty((0,6)), self.class_names)

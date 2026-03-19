@@ -4,7 +4,7 @@ import cv2
 import numpy as np
 
 
-def run_yolo(net, frame_bgr, imgsz=640):
+def run_yolo(net, frame_bgr, imgsz=1280):
     """
     Run NCNN YOLO inference.
     Returns numpy detections.

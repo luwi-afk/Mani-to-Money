@@ -19,7 +19,7 @@ _camera = None
 _using_picamera = False
 
 
-def init_camera(index=0, width=1280, height=720, fps=30, use_picamera=True):
+def init_camera(index=0, width=1280, height=960, fps=30, use_picamera=True):
     """
     Initializes a single global camera instance.
     - On Windows: uses DirectShow (CAP_DSHOW) and sets resolution & FPS.
@@ -99,7 +99,7 @@ def init_camera(index=0, width=1280, height=720, fps=30, use_picamera=True):
                         "FrameRate": fps,
                         "AfMode": 1,
                         "AfSpeed": 1,
-                        "Sharpness": 1.35,
+                        "Sharpness": 1,
                         "NoiseReductionMode": 1,
                     },
                     transform=transform
