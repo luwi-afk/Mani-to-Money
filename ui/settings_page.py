@@ -514,7 +514,7 @@ class SettingsPage(QWidget):
             # --- Camera settings ---
             # Verify all required widgets exist
             required_attrs = [
-                'camera_res', 'camera_fps',
+                'camera_fps',
                 'camera_hflip', 'camera_vflip'
             ]
             missing = [attr for attr in required_attrs if not hasattr(self, attr)]
@@ -522,7 +522,6 @@ class SettingsPage(QWidget):
                 raise RuntimeError(f"Camera UI components missing: {missing}")
 
             camera_settings = {
-                "resolution": self.camera_res.currentText(),
                 "fps": int(self.camera_fps.currentText()),
                 "hflip": self.camera_hflip.isChecked(),
                 "vflip": self.camera_vflip.isChecked()
@@ -571,16 +570,6 @@ class SettingsPage(QWidget):
                 font-size: 13px;
             }
         """
-
-        # Resolution
-        enabled_grid.addWidget(QLabel("Resolution:"), 0, 0)
-        self.camera_res = QComboBox()
-        self.camera_res.addItems(["640x480", "800x600", "1024x768", "1280x720", "1920x1080", "2304x1296", "4608x2592"])
-        self.camera_res.setCurrentText(camera_settings.get("resolution", "1280x720"))
-        self.camera_res.setMaximumWidth(180)
-        self.camera_res.setStyleSheet(combo_style)
-        enabled_grid.addWidget(self.camera_res, 0, 1)
-
         # FPS
         enabled_grid.addWidget(QLabel("Frame Rate:"), 1, 0)
         self.camera_fps = QComboBox()

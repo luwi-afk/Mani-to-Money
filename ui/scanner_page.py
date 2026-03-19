@@ -19,6 +19,7 @@ from detection.detector import PeanutDetector
 from utils.file_utils import project_path, ensure_dir
 from utils.pdf_report import generate_scan_report
 from utils.app_settings import get_max_price_per_kg
+from utils.vision_utils import detect_kernel_contours
 
 
 # ---------------- Shared annotation helpers (with clipping & limiting) ----------------
@@ -93,7 +94,6 @@ def _draw_defects(frame_bgr, defects):
 
 
 class OfflineScanWorker(QThread):
-    # tray_avg, tray_grade, price_per_kg, pdf_path, kernel_results
     finished = pyqtSignal(float, str, float, str, object)
     failed = pyqtSignal(str)
 
@@ -110,8 +110,11 @@ class OfflineScanWorker(QThread):
     def run(self):
         try:
             from logics.grading_pricing_func import (
-                get_defect_boxes, compute_kernel_results, get_kernel_boxes
+                get_kernel_boxes, get_defect_boxes,
+                assign_boxes_to_contours,
+                compute_kernel_results_from_contours
             )
+
             LABEL_MAP = {
                 "pest damage": "pest_damage",
                 "pest-damage": "pest_damage",
@@ -120,31 +123,39 @@ class OfflineScanWorker(QThread):
             if self.yolo_result is not None:
                 result = self.yolo_result
             else:
-                result = self.detector.predict(self.frame_bgr, conf=self.conf, iou=self.iou, imgsz=640)
+                result = self.detector.predict(self.frame_bgr, conf=self.conf, imgsz=640)
 
             if result is None:
                 self.failed.emit("Detection returned None")
                 return
 
-            kernel_boxes = get_kernel_boxes(result, conf_min=0.10, kernel_label="peanut_kernel")
-            if not kernel_boxes:
-                self.finished.emit(0.0, "No Detection", 0.0, "", [])
-                return
-
+            # 1. Get kernel boxes (normal class) and defects from the YOLO result
+            kernel_boxes = get_kernel_boxes(result, conf_min=0.10, kernel_label="normal")
             defects = get_defect_boxes(
                 result,
                 conf_min=0.10,
                 label_map=LABEL_MAP,
-                kernel_label="peanut_kernel"
+                kernel_label="normal"
             )
 
-            kernel_results, tray_avg, tray_grade, price_per_kg = compute_kernel_results(
-                kernel_boxes,
-                defects,
-                max_price_per_kg=self.max_price_per_kg,
-                max_distance_px=100
+            # 2. Run contour detection on the saved frame
+            contours = detect_kernel_contours(self.frame_bgr)
+
+            # 3. Assign detections to contours (each contour becomes a kernel)
+            kernel_data = assign_boxes_to_contours(contours, result)
+
+            # If no kernels found, return early
+            if not kernel_data:
+                self.finished.emit(0.0, "No Detection", 0.0, "", [])
+                return
+
+            # 4. Compute final results
+            kernel_results, tray_avg, tray_grade, price = compute_kernel_results_from_contours(
+                kernel_data,
+                max_price_per_kg=self.max_price_per_kg
             )
 
+            # 5. Generate annotated image and PDF (same as before)
             annotated = self.frame_bgr.copy()
             annotated = _draw_kernel_grade_price(annotated, kernel_results)
             annotated = _draw_defects(annotated, defects)
@@ -159,11 +170,11 @@ class OfflineScanWorker(QThread):
                 annotated_bgr_image=annotated,
                 tray_avg_score=tray_avg,
                 tray_grade=tray_grade,
-                price_per_kg=price_per_kg,
+                price_per_kg=price,
                 kernel_results=kernel_results
             )
 
-            self.finished.emit(tray_avg, tray_grade, price_per_kg, pdf_path, kernel_results)
+            self.finished.emit(tray_avg, tray_grade, price, pdf_path, kernel_results)
 
         except Exception as e:
             import traceback

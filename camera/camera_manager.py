@@ -101,10 +101,6 @@ def init_camera(index=0, width=1280, height=720, fps=30, use_picamera=True):
                         "AfSpeed": 1,
                         "Sharpness": 1.35,
                         "NoiseReductionMode": 1,
-                        # Also helpful for LED lighting:
-                        "Brightness": 0.0,
-                        "Contrast": 0.0,
-                        "Saturation": 0.0,
                     },
                     transform=transform
                 )
