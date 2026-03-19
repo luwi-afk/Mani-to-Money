@@ -1,0 +1,70 @@
+                         ┌─────────────────┐
+                         │   Camera Frame  │
+                         │   (BGR image)   │
+                         └────────┬────────┘
+                                  │
+                ┌─────────────────┴─────────────────┐
+                ▼                                     ▼
+    ┌───────────────────────┐              ┌─────────────────────┐
+    │   ncnn Inference      │              		 │  CV2 Contour        │
+    │   (YOLO)              │             			 │  Detection          │
+    │   Output:             │            		     │  Output:           │
+    │   Detections list     │              		 │  List of contours   │
+    │   [x1,y1,x2,y2,conf,cls]             		 │  (bounding boxes)   │
+    └───────────┬───────────┘              └──────────┬──────────┘
+                │                                      │
+                └──────────────┬───────────────────────┘
+                               ▼
+          ┌────────────────────────────────────────┐
+          │  assign_boxes_to_contours()            │
+          │  For each contour:                     │
+          │  - Check if any detection box center   │
+          │    lies inside the contour.            │
+          │  - If yes → contour = peanut kernel.   │
+          │  - Collect defect labels from boxes    │
+          │    inside (moldy, pest_damage, etc.)   │
+          │  - Normal boxes are ignored for defects│
+          └───────────────────┬────────────────────┘
+                              ▼
+          ┌────────────────────────────────────────┐
+          │  kernel_data: list of dicts            │
+          │  [ { "box": contour_bbox,              │
+          │      "labels": [defect1, defect2] },   │
+          │    ... ]                               │
+          └───────────────────┬────────────────────┘
+                              ▼
+          ┌────────────────────────────────────────┐
+          │  compute_kernel_results_from_contours()│
+          │  For each kernel:                       │
+          │  - score = 100 - sum(penalties)         │
+          │  - grade = classify_grade(score)        │
+          │  - price = (score/100)*max_price        │
+          │  - store in kernel_results list         │
+          └───────────────────┬────────────────────┘
+                              ▼
+          ┌────────────────────────────────────────┐
+          │  Aggregate tray results:               │
+          │  tray_avg = avg(kernel scores)         │
+          │  tray_grade = classify_grade(tray_avg) │
+          │  tray_price = price_from_score(...)    │
+          └───────────────────┬────────────────────┘
+                              ▼
+          ┌────────────────────────────────────────┐
+          │  Output:                               │
+          │  - kernel_results (per‑kernel details) │
+          │  - tray_avg, tray_grade, tray_price    │
+          │  - Annotated image + PDF report        │
+          └────────────────────────────────────────┘
+
+
+''''
+| Defect             | Score | Grade     |
+| ------------------ | ----- | --------- |
+| broken             | 92    | Class I   |
+| shriveled          | 88    | Class I   |
+| pest_damage        | 85    | Class I   |
+| broken + shriveled | 80    | Class I   |
+| shriveled + pest   | 73    | Class II  |
+| pest + broken      | 77    | Class II  |
+| moldy              | 70    | Non-trade |
+'''
