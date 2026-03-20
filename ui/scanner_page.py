@@ -64,7 +64,7 @@ class OfflineScanWorker(QThread):
     failed = pyqtSignal(str)
 
     def __init__(self, detector, frame_bgr, yolo_result=None,
-                 conf=0.25, max_price_per_kg=250.0):
+                 conf=0.10, max_price_per_kg=250.0):
         super().__init__()
         self.detector = detector
         self.frame_bgr = frame_bgr
@@ -156,7 +156,7 @@ class ScannerPage(QWidget):
 
         self.camera = None
         self.detector = PeanutDetector()
-        self.conf = 0.25
+        self.conf = 0.10
         self.last_frame_bgr = None
         self.last_result = None
         self._frame_i = 0
@@ -221,7 +221,7 @@ class ScannerPage(QWidget):
     def start_camera(self):
         try:
             from utils.app_settings import get_camera_fps
-            width, height = 1280, 960
+            width, height = 1280, 720
             fps = get_camera_fps()
 
             if not init_camera(width=width, height=height, fps=fps):
@@ -338,7 +338,7 @@ class ScannerPage(QWidget):
 
         defects = get_defect_boxes(
             result,
-            conf_min=0.25,
+            conf_min=0.10,
             label_map=LABEL_MAP,
             kernel_label="normal"
         )

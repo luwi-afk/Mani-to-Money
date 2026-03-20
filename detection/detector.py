@@ -42,11 +42,10 @@ class PeanutDetector:
         self.net.load_model(bin_path)
 
         self.imgsz = 1280
-        # Order must match the model's training order!
         self.class_names = ["broken", "moldy", "normal", "pest_damage", "shriveled"]
         self.num_classes = len(self.class_names)
 
-    def predict(self, frame_bgr, conf=0.25, imgsz=1280):
+    def predict(self, frame_bgr, conf=0.5, imgsz=1280):
         detections = run_yolo(self.net, frame_bgr, imgsz, conf_thresh=conf)
         if detections is None or len(detections) == 0:
             return DetectionResult(np.empty((0,6)), self.class_names)
