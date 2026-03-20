@@ -1,17 +1,12 @@
-
 import os
 import numpy as np
 import ncnn
 from utils.vision_utils import run_yolo
 from utils.file_utils import project_path
 
-
 class DetectionResult:
     """Mimics Ultralytics result for compatibility with extraction helpers."""
     def __init__(self, detections, class_names):
-        """
-        detections: numpy array of shape (N, 6) -> [x1, y1, x2, y2, conf, class_id]
-        """
         self.detections = detections
         self.names = {i: name for i, name in enumerate(class_names)}
         self.boxes = self.Boxes(detections)
@@ -47,19 +42,12 @@ class PeanutDetector:
         self.net.load_model(bin_path)
 
         self.imgsz = 1280
-        self.class_names = ["broken", "moldy", "normal", "pest damage", "shriveled"]
+        # Order must match the model's training order!
+        self.class_names = ["broken", "moldy", "normal", "pest_damage", "shriveled"]
         self.num_classes = len(self.class_names)
 
-        self.input_name = "in0"
-        self.output_name = "out0"
-
-    def predict(self, frame_bgr, conf=0.10, imgsz=640):
-        detections = run_yolo(self.net, frame_bgr, imgsz)   # returns numpy array Nx6
+    def predict(self, frame_bgr, conf=0.25, imgsz=1280):
+        detections = run_yolo(self.net, frame_bgr, imgsz, conf_thresh=conf)
         if detections is None or len(detections) == 0:
             return DetectionResult(np.empty((0,6)), self.class_names)
-
-        # Filter by confidence
-        mask = detections[:, 4] >= conf
-        detections = detections[mask]
-
         return DetectionResult(detections, self.class_names)
