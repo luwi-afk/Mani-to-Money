@@ -22,8 +22,6 @@ _using_picamera = False
 def init_camera(index=0, width=1280, height=960, fps=30, use_picamera=True):
     """
     Initializes a single global camera instance.
-    - On Windows: uses DirectShow (CAP_DSHOW) and sets resolution & FPS.
-    - On RPi: can use picamera2 for Camera Module 3 or V4L2 for USB (only resolution & FPS).
     """
     global _camera, _using_picamera
 
