@@ -10,7 +10,6 @@ DEFAULTS = {
     "history_keep_days": 30,
     "settings_passcode": "0000",
     "camera": {
-        "resolution": "1280x960",
         "fps": 30,                 # 15, 30, 60
         "hflip": False,            # Horizontal flip
         "vflip": False             # Vertical flip
@@ -136,17 +135,6 @@ def update_camera_settings(settings: dict) -> None:
     s = load_settings()
     s["camera"] = settings
     save_settings(s)
-
-
-def get_camera_resolution() -> tuple:
-    """Get camera resolution as (width, height)"""
-    res = get_camera_settings().get("resolution", "1280x720")
-    try:
-        w, h = map(int, res.split('x'))
-        return w, h
-    except:
-        return 1280, 720
-
 
 def get_camera_fps() -> int:
     """Get camera FPS"""
