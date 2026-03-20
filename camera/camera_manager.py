@@ -17,16 +17,12 @@ _camera = None
 _using_picamera = False
 
 
-def init_camera(index=0, width=1280, height=960, fps=30, use_picamera=True):
+def init_camera(index=0, width=1280, height=720, fps=30, use_picamera=True):
     """
     Initializes a single global camera instance.
-    Resolution is forced to 1280x960 (hardcoded). FPS can be set via argument.
+    Resolution is now set to 1280x1280 (square) for direct model input.
     """
     global _camera, _using_picamera
-
-    # Force hardcoded resolution
-    width = 1280
-    height = 960
 
     # If already opened and working, just return True
     if _camera is not None:
@@ -244,7 +240,7 @@ def release_camera():
     _using_picamera = False
 
 
-def restart_camera(index=0, width=1280, height=960, fps=30, use_picamera=True):
+def restart_camera(index=0, width=1280, height=720, fps=30, use_picamera=True):
     release_camera()
     time.sleep(1)
     return init_camera(index, width, height, fps, use_picamera)
