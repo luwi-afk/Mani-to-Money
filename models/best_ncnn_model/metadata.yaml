@@ -1,6 +1,6 @@
 description: Ultralytics YOLO11n model trained on /content/dataset/data.yaml
 author: Ultralytics
-date: '2026-03-19T22:33:33.157415'
+date: '2026-03-20T23:43:20.635041'
 version: 8.4.21
 license: AGPL-3.0 License (https://ultralytics.com/license)
 docs: https://docs.ultralytics.com
@@ -8,8 +8,8 @@ stride: 32
 task: detect
 batch: 1
 imgsz:
-- 640
-- 640
+- 1280
+- 1280
 names:
   0: broken
   1: moldy

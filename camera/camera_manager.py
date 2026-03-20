@@ -1,5 +1,3 @@
-# camera_manager.py
-
 import cv2
 import sys
 import platform
@@ -22,8 +20,13 @@ _using_picamera = False
 def init_camera(index=0, width=1280, height=960, fps=30, use_picamera=True):
     """
     Initializes a single global camera instance.
+    Resolution is forced to 1280x960 (hardcoded). FPS can be set via argument.
     """
     global _camera, _using_picamera
+
+    # Force hardcoded resolution
+    width = 1280
+    height = 960
 
     # If already opened and working, just return True
     if _camera is not None:
@@ -53,8 +56,8 @@ def init_camera(index=0, width=1280, height=960, fps=30, use_picamera=True):
                 cam.release()
             return False
 
-        cam.set(cv2.CAP_PROP_FRAME_WIDTH, int(width))
-        cam.set(cv2.CAP_PROP_FRAME_HEIGHT, int(height))
+        cam.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+        cam.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
         cam.set(cv2.CAP_PROP_FPS, int(fps))
 
         time.sleep(0.5)
@@ -73,18 +76,22 @@ def init_camera(index=0, width=1280, height=960, fps=30, use_picamera=True):
         # Try picamera2 first (for Camera Module 3)
         if use_picamera and PICAMERA_AVAILABLE:
             try:
-                # Load basic camera settings from app_settings
-                from utils.app_settings import (
-                    get_camera_fps,
-                    get_camera_hflip, get_camera_vflip
-                )
+                # Load fps from app_settings if available, else use argument
+                try:
+                    from utils.app_settings import get_camera_fps
+                    fps = get_camera_fps()
+                except ImportError:
+                    pass  # keep passed fps
 
-                # Override with settings
-                fps = get_camera_fps()
-                hflip = get_camera_hflip()
-                vflip = get_camera_vflip()
+                # Flip settings (if needed)
+                try:
+                    from utils.app_settings import get_camera_hflip, get_camera_vflip
+                    hflip = get_camera_hflip()
+                    vflip = get_camera_vflip()
+                except ImportError:
+                    hflip = False
+                    vflip = False
 
-                # Create transform object
                 transform = Transform(hflip=hflip, vflip=vflip)
 
                 picam2 = Picamera2()
@@ -135,8 +142,8 @@ def init_camera(index=0, width=1280, height=960, fps=30, use_picamera=True):
                 cam.release()
             return False
 
-        cam.set(cv2.CAP_PROP_FRAME_WIDTH, int(width))
-        cam.set(cv2.CAP_PROP_FRAME_HEIGHT, int(height))
+        cam.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+        cam.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
         cam.set(cv2.CAP_PROP_FPS, int(fps))
 
         time.sleep(0.5)
@@ -162,8 +169,8 @@ def init_camera(index=0, width=1280, height=960, fps=30, use_picamera=True):
                 cam.release()
             return False
 
-        cam.set(cv2.CAP_PROP_FRAME_WIDTH, int(width))
-        cam.set(cv2.CAP_PROP_FRAME_HEIGHT, int(height))
+        cam.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+        cam.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
         cam.set(cv2.CAP_PROP_FPS, int(fps))
 
         time.sleep(0.5)
@@ -200,18 +207,21 @@ def read_camera():
                 if len(frame.shape) == 2:
                     frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
 
-                # Apply flip settings from app_settings
-                from utils.app_settings import get_camera_hflip, get_camera_vflip
-                hflip = get_camera_hflip()
-                vflip = get_camera_vflip()
-                if hflip or vflip:
-                    if hflip and vflip:
-                        flip_code = -1  # both axes
-                    elif hflip:
-                        flip_code = 1   # horizontal
-                    else:  # vflip only
-                        flip_code = 0   # vertical
-                    frame = cv2.flip(frame, flip_code)
+                # Apply flip settings from app_settings if available
+                try:
+                    from utils.app_settings import get_camera_hflip, get_camera_vflip
+                    hflip = get_camera_hflip()
+                    vflip = get_camera_vflip()
+                    if hflip or vflip:
+                        if hflip and vflip:
+                            flip_code = -1  # both axes
+                        elif hflip:
+                            flip_code = 1   # horizontal
+                        else:  # vflip only
+                            flip_code = 0   # vertical
+                        frame = cv2.flip(frame, flip_code)
+                except ImportError:
+                    pass  # no flip settings
                 return True, frame
             return False, None
     except Exception as e:

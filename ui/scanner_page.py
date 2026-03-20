@@ -220,8 +220,8 @@ class ScannerPage(QWidget):
 
     def start_camera(self):
         try:
-            from utils.app_settings import get_camera_resolution, get_camera_fps
-            width, height = get_camera_resolution()
+            from utils.app_settings import get_camera_fps
+            width, height = 1280, 960
             fps = get_camera_fps()
 
             if not init_camera(width=width, height=height, fps=fps):
