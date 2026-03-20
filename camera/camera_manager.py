@@ -77,14 +77,11 @@ def init_camera(index=0, width=1280, height=960, fps=30, use_picamera=True):
             try:
                 # Load basic camera settings from app_settings
                 from utils.app_settings import (
-                    get_camera_resolution, get_camera_fps,
+                    get_camera_fps,
                     get_camera_hflip, get_camera_vflip
                 )
 
                 # Override with settings
-                settings_width, settings_height = get_camera_resolution()
-                width = settings_width
-                height = settings_height
                 fps = get_camera_fps()
                 hflip = get_camera_hflip()
                 vflip = get_camera_vflip()
@@ -239,7 +236,7 @@ def release_camera():
     _using_picamera = False
 
 
-def restart_camera(index=0, width=1280, height=720, fps=30, use_picamera=True):
+def restart_camera(index=0, width=1280, height=960, fps=30, use_picamera=True):
     release_camera()
     time.sleep(1)
     return init_camera(index, width, height, fps, use_picamera)
