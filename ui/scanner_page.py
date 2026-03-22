@@ -169,7 +169,7 @@ class ScannerPage(QWidget):
         self.last_frame_bgr = None
         self.last_result = None
         self._frame_i = 0
-        self.infer_every = 10
+        self.infer_every = 6
         self._failed_reads = 0
         self._using_module3 = False
 
@@ -230,7 +230,7 @@ class ScannerPage(QWidget):
     def start_camera(self):
         try:
             from utils.app_settings import get_camera_fps
-            width, height = 1750, 1300   # camera native resolution
+            width, height = 1750, 1300
             fps = get_camera_fps()
 
             if not init_camera(width=width, height=height, fps=fps):
@@ -363,22 +363,22 @@ class ScannerPage(QWidget):
             self.last_frame_bgr = frame.copy()
             self._frame_i += 1
 
-            # Run inference every N frames (commented out – only on scan)
-            # if (self._frame_i % self.infer_every) == 0:
-            #     try:
-            #         self.last_result = self.detector.predict(frame, conf=self.conf, imgsz=640)
-            #     except Exception:
-            #         self.last_result = None
+        #Run inference every N frames
+            if (self._frame_i % self.infer_every) == 0:
+                 try:
+                     self.last_result = self.detector.predict(frame, conf=self.conf, imgsz=640)
+                 except Exception:
+                     self.last_result = None
 
             # Draw annotations (currently none, only raw camera)
             annotated = frame.copy()
-            # if self.last_result is not None:
-            #     try:
-            #         if hasattr(self.last_result, 'boxes') and len(self.last_result.boxes.xyxy) > 0:
-            #             annotated = self.draw_kernel_grade_price(annotated, self.last_result)
-            #             annotated = self.draw_defects_feedback(annotated, self.last_result)
-            #     except Exception:
-            #         pass
+            if self.last_result is not None:
+                 try:
+                     if hasattr(self.last_result, 'boxes') and len(self.last_result.boxes.xyxy) > 0:
+                         annotated = self.draw_kernel_grade_price(annotated, self.last_result)
+                         annotated = self.draw_defects_feedback(annotated, self.last_result)
+                 except Exception:
+                     pass
 
             self._show_frame(annotated)
 

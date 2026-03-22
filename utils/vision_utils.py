@@ -4,7 +4,6 @@ import ncnn
 
 def run_yolo(net, frame_bgr, imgsz=640, conf_thresh=0.50, iou_thresh=0.45):
     h0, w0 = frame_bgr.shape[:2]
-    print(f"Original frame: {h0} x {w0}")
 
     # Letterbox resize to imgsz x imgsz
     r = imgsz / max(w0, h0)
@@ -18,8 +17,6 @@ def run_yolo(net, frame_bgr, imgsz=640, conf_thresh=0.50, iou_thresh=0.45):
     left = dw // 2
     right = dw - left
     img = cv2.copyMakeBorder(img, top, bottom, left, right, cv2.BORDER_CONSTANT, value=(114,114,114))
-
-    print(f"Letterbox: left={left}, top={top}, r={r:.4f}, new_w={new_w}, new_h={new_h}")
 
     # Inference
     mat = ncnn.Mat.from_pixels(img, ncnn.Mat.PixelType.PIXEL_BGR, imgsz, imgsz)
@@ -54,6 +51,10 @@ def run_yolo(net, frame_bgr, imgsz=640, conf_thresh=0.50, iou_thresh=0.45):
         x2 = np.clip(x2, 0, imgsz)
         y2 = np.clip(y2, 0, imgsz)
 
+        # Skip if the box is not entirely inside the actual image area
+        if (x1 < left or x2 > left + new_w or y1 < top or y2 > top + new_h):
+            continue
+
         if x2 <= x1 or y2 <= y1:
             continue
 
@@ -84,12 +85,6 @@ def run_yolo(net, frame_bgr, imgsz=640, conf_thresh=0.50, iou_thresh=0.45):
     boxes[:, 2] = np.clip(boxes[:, 2], 0, w0)
     boxes[:, 3] = np.clip(boxes[:, 3], 0, h0)
 
-    # Show first 3 boxes after transformation
-    if len(boxes) > 0:
-        print("First 3 boxes after mapping:")
-        for i in range(min(3, len(boxes))):
-            print(f"  Box {i}: {boxes[i]}, score={scores[i]}, class={cls_ids[i]}")
-
     valid = (boxes[:, 2] > boxes[:, 0]) & (boxes[:, 3] > boxes[:, 1])
     boxes = boxes[valid]
     scores = scores[valid]
@@ -109,16 +104,71 @@ def run_yolo(net, frame_bgr, imgsz=640, conf_thresh=0.50, iou_thresh=0.45):
     return np.array(final)
 
 
-def detect_kernel_contours(frame_bgr):
-    gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
-    blur = cv2.GaussianBlur(gray, (5,5), 0)
-    _, thresh = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    contour_boxes = []
+def detect_kernel_contours(frame_bgr, target_size=640):
+    """
+    Detect peanut kernels on a tray with holes.
+    Works on any resolution by first resizing to target_size (default 640).
+    Returns a list of dicts: {"box": [x1, y1, x2, y2], "area": area}
+    (coordinates are in the original image space).
+    """
+    h0, w0 = frame_bgr.shape[:2]
+
+    # Resize to target_size for consistent processing
+    frame_resized = cv2.resize(frame_bgr, (target_size, target_size))
+
+    # Convert to grayscale and apply mild blur
+    gray = cv2.cvtColor(frame_resized, cv2.COLOR_BGR2GRAY)
+    blur = cv2.GaussianBlur(gray, (5, 5), 0)
+
+    # Adaptive thresholding to handle uneven lighting
+    thresh = cv2.adaptiveThreshold(blur, 255,
+                                   cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+                                   cv2.THRESH_BINARY_INV,
+                                   15, 2)
+
+    # Morphological closing to fill small holes
+    kernel = np.ones((3, 3), np.uint8)
+    closed = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel, iterations=2)
+
+    # Opening to remove small specks
+    opened = cv2.morphologyEx(closed, cv2.MORPH_OPEN, kernel, iterations=1)
+
+    # Find external contours
+    contours, _ = cv2.findContours(opened, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    # Prepare to store valid kernel boxes (in resized coordinates)
+    resized_boxes = []
+
+    # Thresholds tuned for 640x640 image
+    min_area = 400       # smallest kernel area in pixels
+    max_area = 3000      # largest possible kernel area
     for c in contours:
         area = cv2.contourArea(c)
-        if area < 300:
+        if area < min_area or area > max_area:
             continue
+
+        perimeter = cv2.arcLength(c, True)
+        if perimeter == 0:
+            continue
+        circularity = 4 * np.pi * area / (perimeter * perimeter)
+        if circularity < 0.5 or circularity > 0.95:
+            continue
+
         x, y, w, h = cv2.boundingRect(c)
-        contour_boxes.append({"box": [x, y, x+w, y+h], "area": area})
-    return contour_boxes
+        aspect_ratio = w / float(h)
+        if aspect_ratio < 0.5 or aspect_ratio > 2.0:
+            continue
+
+        resized_boxes.append({"box": [x, y, x + w, y + h], "area": area})
+
+    # Scale boxes back to original image coordinates
+    scale_x = w0 / target_size
+    scale_y = h0 / target_size
+    original_boxes = []
+    for box in resized_boxes:
+        x1, y1, x2, y2 = box["box"]
+        original_boxes.append({
+            "box": [x1 * scale_x, y1 * scale_y, x2 * scale_x, y2 * scale_y],
+            "area": box["area"] * (scale_x * scale_y)   # area scaled
+        })
+    return original_boxes
