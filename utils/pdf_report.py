@@ -48,14 +48,15 @@ def generate_scan_report(
 
     detected = len(kernel_results or [])
 
-    defect_order = ["moldy", "pest_damage", "shriveled", "broken"]
+    # Update defect order to match the model's classes
+    defect_order = ["damage", "shriveled", "broken"]   # as defined in PENALTY
     grade_order = ["Extra Class", "Class I", "Class II", "Reject / Non-trade"]
 
     # ---------- title ----------
     story.append(Paragraph("<b>Mani-to-Money : Peanut Kernel Classifier</b>", styles["Title"]))
     story.append(Spacer(1, 10))
 
-    # ---------- scan summary (aligned with MessageBox) ----------
+    # ---------- scan summary ----------
     story.append(Paragraph("<b>SCAN SUMMARY</b>", styles["Heading2"]))
     story.append(Paragraph(f"Date: {date_str}", styles["Normal"]))
     story.append(Paragraph(f"Time: {time_str}", styles["Normal"]))

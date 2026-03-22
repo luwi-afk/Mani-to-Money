@@ -64,7 +64,7 @@ class OfflineScanWorker(QThread):
     failed = pyqtSignal(str)
 
     def __init__(self, detector, frame_bgr, yolo_result=None,
-                 conf=0.10, max_price_per_kg=250.0):
+                 conf=0.50, max_price_per_kg=250.0):
         super().__init__()
         self.detector = detector
         self.frame_bgr = frame_bgr
@@ -80,26 +80,20 @@ class OfflineScanWorker(QThread):
                 compute_kernel_results_from_contours
             )
 
-            LABEL_MAP = {
-                "pest damage": "pest_damage",
-                "pest-damage": "pest_damage",
-            }
-
             if self.yolo_result is not None:
                 result = self.yolo_result
             else:
-                result = self.detector.predict(self.frame_bgr, conf=self.conf, imgsz=1280)
+                result = self.detector.predict(self.frame_bgr, conf=self.conf, imgsz=640)
 
             if result is None:
                 self.failed.emit("Detection returned None")
                 return
 
             # 1. Get kernel boxes (normal class) and defects
-            kernel_boxes = get_kernel_boxes(result, conf_min=0.10, kernel_label="normal")
+            kernel_boxes = get_kernel_boxes(result, conf_min=0.50, kernel_label="normal")
             defects = get_defect_boxes(
                 result,
-                conf_min=0.10,
-                label_map=LABEL_MAP,
+                conf_min=0.50,
                 kernel_label="normal"
             )
 
@@ -114,16 +108,31 @@ class OfflineScanWorker(QThread):
                 self.finished.emit(0.0, "No Detection", 0.0, "", [])
                 return
 
-            # 4. Compute final results
+            # 4. Filter defect boxes that are inside any kernel contour
+            used_defect_boxes = []
+            if kernel_data:
+                # Precompute kernel contour boxes
+                kernel_boxes_contours = [k["box"] for k in kernel_data]
+                for d in defects:
+                    cx = (d["box"][0] + d["box"][2]) / 2.0
+                    cy = (d["box"][1] + d["box"][3]) / 2.0
+                    inside = any(
+                        kbox[0] <= cx <= kbox[2] and kbox[1] <= cy <= kbox[3]
+                        for kbox in kernel_boxes_contours
+                    )
+                    if inside:
+                        used_defect_boxes.append(d)
+
+            # 5. Compute final results
             kernel_results, tray_avg, tray_grade, price = compute_kernel_results_from_contours(
                 kernel_data,
                 max_price_per_kg=self.max_price_per_kg
             )
 
-            # 5. Generate annotated image and PDF
+            # 6. Generate annotated image and PDF (using filtered defects)
             annotated = self.frame_bgr.copy()
             annotated = _draw_kernel_grade_price(annotated, kernel_results)
-            annotated = _draw_defects(annotated, defects)
+            annotated = _draw_defects(annotated, used_defect_boxes)
 
             out_dir = project_path("receipts")
             ensure_dir(out_dir)
@@ -156,11 +165,11 @@ class ScannerPage(QWidget):
 
         self.camera = None
         self.detector = PeanutDetector()
-        self.conf = 0.10
+        self.conf = 0.50
         self.last_frame_bgr = None
         self.last_result = None
         self._frame_i = 0
-        self.infer_every = 6
+        self.infer_every = 10
         self._failed_reads = 0
         self._using_module3 = False
 
@@ -315,8 +324,8 @@ class ScannerPage(QWidget):
             "pest-damage": "pest_damage",
         }
 
-        kernel_boxes = get_kernel_boxes(result, conf_min=0.10, kernel_label="normal")
-        defects = get_defect_boxes(result, conf_min=0.10, label_map=LABEL_MAP, kernel_label="normal")
+        kernel_boxes = get_kernel_boxes(result, conf_min=0.50, kernel_label="normal")
+        defects = get_defect_boxes(result, conf_min=0.50, label_map=LABEL_MAP, kernel_label="normal")
 
         max_price = get_max_price_per_kg()
         kernel_results, _, _, _ = compute_kernel_results_from_boxes(
@@ -338,8 +347,7 @@ class ScannerPage(QWidget):
 
         defects = get_defect_boxes(
             result,
-            conf_min=0.10,
-            label_map=LABEL_MAP,
+            conf_min=0.50,
             kernel_label="normal"
         )
 
@@ -366,21 +374,21 @@ class ScannerPage(QWidget):
             self._frame_i += 1
 
             # Run inference every N frames
-            if (self._frame_i % self.infer_every) == 0:
+            '''if (self._frame_i % self.infer_every) == 0:
                 try:
-                    self.last_result = self.detector.predict(frame, conf=self.conf, imgsz=1280)
+                    self.last_result = self.detector.predict(frame, conf=self.conf, imgsz=640)
                 except Exception:
-                    self.last_result = None
+                    self.last_result = None'''
 
             # Draw annotations
             annotated = frame.copy()
-            if self.last_result is not None:
+            '''if self.last_result is not None:
                 try:
                     if hasattr(self.last_result, 'boxes') and len(self.last_result.boxes.xyxy) > 0:
                         annotated = self.draw_kernel_grade_price(annotated, self.last_result)
                         annotated = self.draw_defects_feedback(annotated, self.last_result)
                 except Exception:
-                    pass
+                    pass '''
 
             self._show_frame(annotated)
 
@@ -415,22 +423,18 @@ class ScannerPage(QWidget):
         if self.last_frame_bgr is None:
             QMessageBox.warning(self, "Scan", "No camera frame yet. Please wait for camera feed.")
             return
-        if self.last_result is None:
-            QMessageBox.warning(self, "Scan", "No detections yet. Please wait 1-2 seconds.")
-            return
 
         self.scan.setEnabled(False)
         self.scan.setText("Scanning...")
         self.set_instruction("Scanning… Please hold still", scanning=True)
 
         frame = self.last_frame_bgr.copy()
-        result = self.last_result
         max_price = get_max_price_per_kg()
 
         self.worker = OfflineScanWorker(
             detector=self.detector,
             frame_bgr=frame,
-            yolo_result=result,
+            yolo_result=None,  # force fresh inference
             conf=self.conf,
             max_price_per_kg=max_price
         )
@@ -464,7 +468,7 @@ class ScannerPage(QWidget):
                 defect_counts[d] = defect_counts.get(d, 0) + 1
 
         detected = len(kernel_results or [])
-        defect_order = ["moldy", "pest_damage", "shriveled", "broken"]
+        defect_order = ["broken", "damage", "shriveled"]
         defect_lines = [f"{d}: {defect_counts.get(d, 0)}" for d in defect_order]
         grade_order = ["Extra Class", "Class I", "Class II", "Reject / Non-trade"]
         grade_lines = [f"{g}: {class_counts.get(g, 0)}" for g in grade_order]

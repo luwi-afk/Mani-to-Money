@@ -2,15 +2,10 @@ import cv2
 import numpy as np
 import ncnn
 
-def run_yolo(net, frame_bgr, imgsz=1280, conf_thresh=0.5, iou_thresh=0.45):
-    """
-    Run NCNN inference with letterbox resizing.
-    Returns numpy array of shape (N, 6): [x1, y1, x2, y2, confidence, class_id]
-    Coordinates are in the original image space.
-    """
+def run_yolo(net, frame_bgr, imgsz=640, conf_thresh=0.5, iou_thresh=0.45):
     h0, w0 = frame_bgr.shape[:2]
 
-    # 1. Letterbox resize to imgsz x imgsz
+    # Letterbox
     r = imgsz / max(w0, h0)
     new_w = int(round(w0 * r))
     new_h = int(round(h0 * r))
@@ -23,33 +18,31 @@ def run_yolo(net, frame_bgr, imgsz=1280, conf_thresh=0.5, iou_thresh=0.45):
     right = dw - left
     img = cv2.copyMakeBorder(img, top, bottom, left, right, cv2.BORDER_CONSTANT, value=(114,114,114))
 
-    # 2. Inference
+    # Inference
     mat = ncnn.Mat.from_pixels(img, ncnn.Mat.PixelType.PIXEL_BGR, imgsz, imgsz)
     mat.substract_mean_normalize([0, 0, 0], [1/255.0, 1/255.0, 1/255.0])
     ex = net.create_extractor()
     ex.input("in0", mat)
     ret, out = ex.extract("out0")
-
     if ret != 0:
         return None
 
-    # out shape: (num_classes+5, num_detections) -> (num_detections, num_classes+5)
-    data = np.array(out).T   # shape (num_detections, 9) for 5 classes
+    # out shape: (num_classes+4, num_detections) -> (num_detections, num_classes+4)
+    data = np.array(out).T
 
-    # 3. Determine format: [x1,y1,x2,y2] or [cx,cy,w,h] ?
-    # We'll try to guess by checking if x1 < x2 and y1 < y2 for a sample of rows.
+    # Determine number of classes
+    num_classes = data.shape[1] - 4
+
+    # Format detection
     sample = data[:min(100, len(data))]
     x1, y1, x2, y2 = sample[:, 0], sample[:, 1], sample[:, 2], sample[:, 3]
-    valid_corners = np.mean((x1 < x2) & (y1 < y2)) > 0.5   # >50% are valid
-    # If many boxes have x1 > x2 or y1 > y2, assume it's [cx,cy,w,h]
-    use_center_format = not valid_corners
+    valid = (x1 < x2) & (y1 < y2)
+    format_corners = np.mean(valid) > 0.5
 
     detections = []
     for row in data:
-        if use_center_format:
-            # row: [cx, cy, w, h, class1, ..., class5] in normalized coordinates (0..1)
+        if not format_corners:
             cx, cy, w, h = row[0:4]
-            # Convert to corners
             x1 = cx - w/2
             y1 = cy - h/2
             x2 = cx + w/2
@@ -57,15 +50,15 @@ def run_yolo(net, frame_bgr, imgsz=1280, conf_thresh=0.5, iou_thresh=0.45):
         else:
             x1, y1, x2, y2 = row[0:4]
 
-        # If coordinates are normalized (<=1.1), scale them to image size
+        # Normalize if needed
         if np.max([x1, y1, x2, y2]) <= 1.1:
             x1 *= imgsz
             y1 *= imgsz
             x2 *= imgsz
             y2 *= imgsz
 
-        # Class scores (sigmoid)
-        class_scores = 1.0 / (1.0 + np.exp(-row[4:]))
+        # Class scores – slice exactly num_classes entries after bbox
+        class_scores = 1.0 / (1.0 + np.exp(-row[4:4+num_classes]))
         max_score = np.max(class_scores)
         class_id = np.argmax(class_scores)
         if max_score >= conf_thresh:
@@ -78,7 +71,7 @@ def run_yolo(net, frame_bgr, imgsz=1280, conf_thresh=0.5, iou_thresh=0.45):
     scores = np.array(detections)[:, 4]
     cls_ids = np.array(detections)[:, 5].astype(int)
 
-    # 4. Remove padding and scale to original image
+    # Remove padding and scale to original
     boxes[:, 0] -= left
     boxes[:, 1] -= top
     boxes[:, 2] -= left
@@ -99,7 +92,7 @@ def run_yolo(net, frame_bgr, imgsz=1280, conf_thresh=0.5, iou_thresh=0.45):
     if len(boxes) == 0:
         return np.empty((0, 6))
 
-    # 5. NMS
+    # NMS
     indices = cv2.dnn.NMSBoxes(boxes.tolist(), scores.tolist(), conf_thresh, iou_thresh)
     if len(indices) == 0:
         return np.empty((0, 6))

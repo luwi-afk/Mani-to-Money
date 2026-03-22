@@ -16,8 +16,7 @@ import numpy as np
 MAX_SCORE = 100.0
 
 PENALTY = {
-    "moldy": 30,
-    "pest_damage": 15,
+    "damage": 30,
     "shriveled": 12,
     "broken": 8,
 }

@@ -6,10 +6,9 @@ from PyQt5.QtWidgets import (
 import time
 from PyQt5.QtCore import pyqtSignal
 from utils.app_settings import get_history_auto_purge, get_history_keep_days
-from utils.file_utils import project_path,pretty_scan_name
+from utils.file_utils import project_path, pretty_scan_name
 from utils.open_file import open_file
 from PyQt5.QtWidgets import QScroller
-
 
 
 class HistoryPage(QWidget):
@@ -64,8 +63,23 @@ class HistoryPage(QWidget):
             }
             QPushButton:hover { background:#4CAF50; }
         """)
-
         bottom_row.addWidget(self.open_btn)
+
+        # Delete button
+        self.delete_btn = QPushButton("Delete Receipt")
+        self.delete_btn.setFixedSize(180, 48)
+        self.delete_btn.setStyleSheet("""
+            QPushButton {
+                background:#b00;
+                color:white;
+                font-size:16px;
+                font-weight:bold;
+                border-radius:10px;
+            }
+            QPushButton:hover { background:#d22; }
+        """)
+        bottom_row.addWidget(self.delete_btn)
+
         root.addLayout(bottom_row)
 
         # -------- Data --------
@@ -76,6 +90,7 @@ class HistoryPage(QWidget):
         # -------- Signals --------
         self.list_widget.currentRowChanged.connect(self.on_select_row)
         self.open_btn.clicked.connect(self.open_current)
+        self.delete_btn.clicked.connect(self.delete_current)
 
         self.refresh()
 
@@ -103,6 +118,7 @@ class HistoryPage(QWidget):
             self.list_widget.addItem("No receipts found")
             self.list_widget.setEnabled(False)
             self.open_btn.setEnabled(False)
+            self.delete_btn.setEnabled(False)
             return
 
         pdfs = sorted(
@@ -114,10 +130,12 @@ class HistoryPage(QWidget):
             self.list_widget.addItem("No receipts found")
             self.list_widget.setEnabled(False)
             self.open_btn.setEnabled(False)
+            self.delete_btn.setEnabled(False)
             return
 
         self.list_widget.setEnabled(True)
         self.open_btn.setEnabled(True)
+        self.delete_btn.setEnabled(True)
 
         for fname in pdfs:
             full = os.path.join(self.folder, fname)
@@ -142,3 +160,33 @@ class HistoryPage(QWidget):
             return
 
         open_file(self.current_path)
+
+    def delete_current(self):
+        """Delete the currently selected receipt after confirmation."""
+        if not self.current_path:
+            QMessageBox.information(self, "Delete Receipt", "No receipt selected.")
+            return
+
+        reply = QMessageBox.question(
+            self,
+            "Confirm Deletion",
+            f"Are you sure you want to delete\n{os.path.basename(self.current_path)}?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        if reply != QMessageBox.Yes:
+            return
+
+        try:
+            os.remove(self.current_path)
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Delete Failed",
+                f"Could not delete the file:\n{str(e)}"
+            )
+            return
+
+        # Refresh the list and clear selection
+        self.refresh()
+        QMessageBox.information(self, "Delete Receipt", "Receipt deleted successfully.")
