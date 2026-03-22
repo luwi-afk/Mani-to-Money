@@ -2,7 +2,7 @@ import cv2
 import numpy as np
 import ncnn
 
-def run_yolo(net, frame_bgr, imgsz=640, conf_thresh=0.50, iou_thresh=0.45):
+def run_yolo(net, frame_bgr, imgsz=1280, conf_thresh=0.50, iou_thresh=0.45):
     h0, w0 = frame_bgr.shape[:2]
 
     # Letterbox resize to imgsz x imgsz
@@ -51,8 +51,8 @@ def run_yolo(net, frame_bgr, imgsz=640, conf_thresh=0.50, iou_thresh=0.45):
         x2 = np.clip(x2, 0, imgsz)
         y2 = np.clip(y2, 0, imgsz)
 
-        # Skip if the box is not entirely inside the actual image area
-        if (x1 < left or x2 > left + new_w or y1 < top or y2 > top + new_h):
+        # Skip if the box is completely outside the actual image area
+        if (x2 <= left or x1 >= left + new_w or y2 <= top or y1 >= top + new_h):
             continue
 
         if x2 <= x1 or y2 <= y1:

@@ -35,12 +35,14 @@ def _draw_kernel_grade_price(frame_bgr, kernel_results):
             continue
         grade = k.get("grade", "Unknown")
         ppk = float(k.get("price_per_kg", 0.0))
-        cv2.rectangle(frame_bgr, (x1, y1), (x2, y2), (0,255,0), 2)
-        text = f"{grade}  Php{ppk:.2f}/kg"
+        # Optionally show defect type
+        defects = k.get("defects", [])
+        defect_str = f" ({', '.join(defects)})" if defects else ""
+        cv2.rectangle(frame_bgr, (x1, y1), (x2, y2), (0,255,0) if not defects else (0,0,255), 2)
+        text = f"{grade}  Php{ppk:.2f}/kg{defect_str}"
         ty = max(20, y1-8)
-        cv2.putText(frame_bgr, text, (x1, ty), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0,255,0), 2)
+        cv2.putText(frame_bgr, text, (x1, ty), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0,255,0) if not defects else (0,0,255), 2)
     return frame_bgr
-
 
 def _draw_defects(frame_bgr, defects):
     if not defects:
@@ -75,65 +77,46 @@ class OfflineScanWorker(QThread):
     def run(self):
         try:
             from logics.grading_pricing_func import (
-                get_kernel_boxes, get_defect_boxes,
-                assign_boxes_to_contours,
-                compute_kernel_results_from_contours
+                assign_boxes_to_contours_all_classes,
+                compute_kernel_results_from_kernel_data
             )
+            from utils.vision_utils import detect_kernel_contours
+            from utils.file_utils import project_path, ensure_dir
+            from utils.pdf_report import generate_scan_report
+            from datetime import datetime
+            import os
+            import cv2
 
+            # Run inference if not provided
             if self.yolo_result is not None:
                 result = self.yolo_result
             else:
-                # Model input size is 640 (fixed)
                 result = self.detector.predict(self.frame_bgr, conf=self.conf, imgsz=640)
 
             if result is None:
                 self.failed.emit("Detection returned None")
                 return
 
-            # 1. Get kernel boxes (normal class) and defects
-            kernel_boxes = get_kernel_boxes(result, conf_min=0.50, kernel_label="normal")
-            defects = get_defect_boxes(
-                result,
-                conf_min=0.50,
-                kernel_label="normal"
-            )
-
-            # 2. Run contour detection on the saved frame
+            # Detect contours (candidate kernels)
             contours = detect_kernel_contours(self.frame_bgr)
 
-            # 3. Assign detections to contours (each contour becomes a kernel)
-            kernel_data = assign_boxes_to_contours(contours, result)
+            # Assign all YOLO boxes to contours
+            kernel_data = assign_boxes_to_contours_all_classes(contours, result, conf_min=0.50)
 
-            # If no kernels found, return early
             if not kernel_data:
                 self.finished.emit(0.0, "No Detection", 0.0, "", [])
                 return
 
-            # 4. Filter defect boxes that are inside any kernel contour
-            used_defect_boxes = []
-            if kernel_data:
-                kernel_boxes_contours = [k["box"] for k in kernel_data]
-                for d in defects:
-                    cx = (d["box"][0] + d["box"][2]) / 2.0
-                    cy = (d["box"][1] + d["box"][3]) / 2.0
-                    inside = any(
-                        kbox[0] <= cx <= kbox[2] and kbox[1] <= cy <= kbox[3]
-                        for kbox in kernel_boxes_contours
-                    )
-                    if inside:
-                        used_defect_boxes.append(d)
-
-            # 5. Compute final results
-            kernel_results, tray_avg, tray_grade, price = compute_kernel_results_from_contours(
-                kernel_data,
-                max_price_per_kg=self.max_price_per_kg
+            # Compute grades, prices, etc.
+            kernel_results, tray_avg, tray_grade, price = compute_kernel_results_from_kernel_data(
+                kernel_data, max_price_per_kg=self.max_price_per_kg
             )
 
-            # 6. Generate annotated image and PDF (using filtered defects)
+            # Generate annotated image
             annotated = self.frame_bgr.copy()
-            annotated = _draw_kernel_grade_price(annotated, kernel_results)
-            annotated = _draw_defects(annotated, used_defect_boxes)
+            annotated = _draw_kernel_grade_price(annotated, kernel_results)  # uses global helper
 
+            # Save PDF
             out_dir = project_path("receipts")
             ensure_dir(out_dir)
             ts = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -154,7 +137,6 @@ class OfflineScanWorker(QThread):
             import traceback
             traceback.print_exc()
             self.failed.emit(str(e) + "\n" + traceback.format_exc())
-
 
 class ScannerPage(QWidget):
 
@@ -311,23 +293,30 @@ class ScannerPage(QWidget):
         self._show_frame(blank)
 
     # ---- Preview drawing methods ----
-    def draw_kernel_grade_price(self, frame_bgr, result):
-        from logics.grading_pricing_func import (
-            get_kernel_boxes, get_defect_boxes, compute_kernel_results_from_boxes
-        )
-
-        if result is None or result.boxes is None or len(result.boxes.xyxy) == 0:
+    def _draw_kernel_grade_price(frame_bgr, kernel_results):
+        if not kernel_results:
             return frame_bgr
-
-        kernel_boxes = get_kernel_boxes(result, conf_min=0.50, kernel_label="normal")
-        defects = get_defect_boxes(result, conf_min=0.50, kernel_label="normal")
-
-        max_price = get_max_price_per_kg()
-        kernel_results, _, _, _ = compute_kernel_results_from_boxes(
-            kernel_boxes, defects, max_price_per_kg=max_price, max_distance_px=100
-        )
-
-        return _draw_kernel_grade_price(frame_bgr, kernel_results)
+        h, w = frame_bgr.shape[:2]
+        sorted_kernels = sorted(kernel_results, key=lambda k: k.get("score", 0), reverse=True)[:50]
+        for k in sorted_kernels:
+            x1, y1, x2, y2 = map(int, k["box"])
+            x1 = max(0, min(w - 1, x1));
+            y1 = max(0, min(h - 1, y1))
+            x2 = max(0, min(w - 1, x2));
+            y2 = max(0, min(h - 1, y2))
+            if x2 <= x1 or y2 <= y1:
+                continue
+            grade = k.get("grade", "Unknown")
+            ppk = float(k.get("price_per_kg", 0.0))
+            # Optionally show defect type
+            defects = k.get("defects", [])
+            defect_str = f" ({', '.join(defects)})" if defects else ""
+            cv2.rectangle(frame_bgr, (x1, y1), (x2, y2), (0, 255, 0) if not defects else (0, 0, 255), 2)
+            text = f"{grade}  Php{ppk:.2f}/kg{defect_str}"
+            ty = max(20, y1 - 8)
+            cv2.putText(frame_bgr, text, (x1, ty), cv2.FONT_HERSHEY_SIMPLEX, 0.55,
+                        (0, 255, 0) if not defects else (0, 0, 255), 2)
+        return frame_bgr
 
     def draw_defects_feedback(self, frame_bgr, result):
         from logics.grading_pricing_func import get_defect_boxes
