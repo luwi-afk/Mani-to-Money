@@ -2,10 +2,11 @@ import cv2
 import numpy as np
 import ncnn
 
-def run_yolo(net, frame_bgr, imgsz=640, conf_thresh=0.5, iou_thresh=0.45):
+def run_yolo(net, frame_bgr, imgsz=640, conf_thresh=0.50, iou_thresh=0.45):
     h0, w0 = frame_bgr.shape[:2]
+    print(f"Original frame: {h0} x {w0}")
 
-    # Letterbox
+    # Letterbox resize to imgsz x imgsz
     r = imgsz / max(w0, h0)
     new_w = int(round(w0 * r))
     new_h = int(round(h0 * r))
@@ -18,6 +19,8 @@ def run_yolo(net, frame_bgr, imgsz=640, conf_thresh=0.5, iou_thresh=0.45):
     right = dw - left
     img = cv2.copyMakeBorder(img, top, bottom, left, right, cv2.BORDER_CONSTANT, value=(114,114,114))
 
+    print(f"Letterbox: left={left}, top={top}, r={r:.4f}, new_w={new_w}, new_h={new_h}")
+
     # Inference
     mat = ncnn.Mat.from_pixels(img, ncnn.Mat.PixelType.PIXEL_BGR, imgsz, imgsz)
     mat.substract_mean_normalize([0, 0, 0], [1/255.0, 1/255.0, 1/255.0])
@@ -27,38 +30,34 @@ def run_yolo(net, frame_bgr, imgsz=640, conf_thresh=0.5, iou_thresh=0.45):
     if ret != 0:
         return None
 
-    # out shape: (num_classes+4, num_detections) -> (num_detections, num_classes+4)
-    data = np.array(out).T
+    data = np.array(out).T   # shape (num_detections, num_classes+5)
 
-    # Determine number of classes
-    num_classes = data.shape[1] - 4
-
-    # Format detection
-    sample = data[:min(100, len(data))]
-    x1, y1, x2, y2 = sample[:, 0], sample[:, 1], sample[:, 2], sample[:, 3]
-    valid = (x1 < x2) & (y1 < y2)
-    format_corners = np.mean(valid) > 0.5
+    # Check if coordinates are normalized
+    if data.size > 0:
+        max_coord = np.max(data[:, :4])
+        normalized = max_coord <= 1.1
+    else:
+        normalized = False
 
     detections = []
     for row in data:
-        if not format_corners:
-            cx, cy, w, h = row[0:4]
-            x1 = cx - w/2
-            y1 = cy - h/2
-            x2 = cx + w/2
-            y2 = cy + h/2
-        else:
-            x1, y1, x2, y2 = row[0:4]
-
-        # Normalize if needed
-        if np.max([x1, y1, x2, y2]) <= 1.1:
+        x1, y1, x2, y2 = row[0:4]
+        if normalized:
             x1 *= imgsz
             y1 *= imgsz
             x2 *= imgsz
             y2 *= imgsz
 
-        # Class scores – slice exactly num_classes entries after bbox
-        class_scores = 1.0 / (1.0 + np.exp(-row[4:4+num_classes]))
+        # Clip to padded image bounds
+        x1 = np.clip(x1, 0, imgsz)
+        y1 = np.clip(y1, 0, imgsz)
+        x2 = np.clip(x2, 0, imgsz)
+        y2 = np.clip(y2, 0, imgsz)
+
+        if x2 <= x1 or y2 <= y1:
+            continue
+
+        class_scores = 1.0 / (1.0 + np.exp(-row[4:]))
         max_score = np.max(class_scores)
         class_id = np.argmax(class_scores)
         if max_score >= conf_thresh:
@@ -71,7 +70,7 @@ def run_yolo(net, frame_bgr, imgsz=640, conf_thresh=0.5, iou_thresh=0.45):
     scores = np.array(detections)[:, 4]
     cls_ids = np.array(detections)[:, 5].astype(int)
 
-    # Remove padding and scale to original
+    # Remove padding and scale to original image
     boxes[:, 0] -= left
     boxes[:, 1] -= top
     boxes[:, 2] -= left
@@ -84,6 +83,13 @@ def run_yolo(net, frame_bgr, imgsz=640, conf_thresh=0.5, iou_thresh=0.45):
     boxes[:, 1] = np.clip(boxes[:, 1], 0, h0)
     boxes[:, 2] = np.clip(boxes[:, 2], 0, w0)
     boxes[:, 3] = np.clip(boxes[:, 3], 0, h0)
+
+    # Show first 3 boxes after transformation
+    if len(boxes) > 0:
+        print("First 3 boxes after mapping:")
+        for i in range(min(3, len(boxes))):
+            print(f"  Box {i}: {boxes[i]}, score={scores[i]}, class={cls_ids[i]}")
+
     valid = (boxes[:, 2] > boxes[:, 0]) & (boxes[:, 3] > boxes[:, 1])
     boxes = boxes[valid]
     scores = scores[valid]
