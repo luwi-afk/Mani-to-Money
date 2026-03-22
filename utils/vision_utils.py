@@ -104,10 +104,10 @@ def run_yolo(net, frame_bgr, imgsz=1280, conf_thresh=0.50, iou_thresh=0.45):
     return np.array(final)
 
 
-def detect_kernel_contours(frame_bgr, target_size=640):
+def detect_kernel_contours(frame_bgr, target_size=1280):
     """
     Detect peanut kernels on a tray with holes.
-    Works on any resolution by first resizing to target_size (default 640).
+    Works on any resolution by first resizing to target_size.
     Returns a list of dicts: {"box": [x1, y1, x2, y2], "area": area}
     (coordinates are in the original image space).
     """
@@ -139,9 +139,10 @@ def detect_kernel_contours(frame_bgr, target_size=640):
     # Prepare to store valid kernel boxes (in resized coordinates)
     resized_boxes = []
 
-    # Thresholds tuned for 640x640 image
-    min_area = 400       # smallest kernel area in pixels
-    max_area = 3000      # largest possible kernel area
+    # Thresholds tuned for 1280 image
+    min_area = 1600
+    max_area = 12000
+
     for c in contours:
         area = cv2.contourArea(c)
         if area < min_area or area > max_area:
