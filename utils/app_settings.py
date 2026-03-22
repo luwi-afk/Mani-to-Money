@@ -138,7 +138,7 @@ def update_camera_settings(settings: dict) -> None:
 
 def get_camera_fps() -> int:
     """Get camera FPS"""
-    return get_camera_settings().get("fps", 30)
+    return get_camera_settings().get("fps")
 
 
 def get_camera_hflip() -> bool:

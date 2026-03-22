@@ -21,7 +21,7 @@ from utils.app_settings import get_max_price_per_kg
 from utils.vision_utils import detect_kernel_contours
 
 
-# ---------------- Shared annotation helpers (unchanged) ----------------
+# ---------------- Shared annotation helpers ----------------
 def _draw_kernel_grade_price(frame_bgr, kernel_results):
     if not kernel_results:
         return frame_bgr
@@ -83,6 +83,7 @@ class OfflineScanWorker(QThread):
             if self.yolo_result is not None:
                 result = self.yolo_result
             else:
+                # Model input size is 640 (fixed)
                 result = self.detector.predict(self.frame_bgr, conf=self.conf, imgsz=640)
 
             if result is None:
@@ -111,7 +112,6 @@ class OfflineScanWorker(QThread):
             # 4. Filter defect boxes that are inside any kernel contour
             used_defect_boxes = []
             if kernel_data:
-                # Precompute kernel contour boxes
                 kernel_boxes_contours = [k["box"] for k in kernel_data]
                 for d in defects:
                     cx = (d["box"][0] + d["box"][2]) / 2.0
@@ -230,7 +230,7 @@ class ScannerPage(QWidget):
     def start_camera(self):
         try:
             from utils.app_settings import get_camera_fps
-            width, height = 1280, 720
+            width, height = 1750, 1300   # camera native resolution
             fps = get_camera_fps()
 
             if not init_camera(width=width, height=height, fps=fps):
@@ -319,13 +319,8 @@ class ScannerPage(QWidget):
         if result is None or result.boxes is None or len(result.boxes.xyxy) == 0:
             return frame_bgr
 
-        LABEL_MAP = {
-            "pest damage": "pest_damage",
-            "pest-damage": "pest_damage",
-        }
-
         kernel_boxes = get_kernel_boxes(result, conf_min=0.50, kernel_label="normal")
-        defects = get_defect_boxes(result, conf_min=0.50, label_map=LABEL_MAP, kernel_label="normal")
+        defects = get_defect_boxes(result, conf_min=0.50, kernel_label="normal")
 
         max_price = get_max_price_per_kg()
         kernel_results, _, _, _ = compute_kernel_results_from_boxes(
@@ -339,11 +334,6 @@ class ScannerPage(QWidget):
 
         if result is None or result.boxes is None or len(result.boxes.xyxy) == 0:
             return frame_bgr
-
-        LABEL_MAP = {
-            "pest damage": "pest_damage",
-            "pest-damage": "pest_damage",
-        }
 
         defects = get_defect_boxes(
             result,
@@ -373,22 +363,22 @@ class ScannerPage(QWidget):
             self.last_frame_bgr = frame.copy()
             self._frame_i += 1
 
-            # Run inference every N frames
-            '''if (self._frame_i % self.infer_every) == 0:
-                try:
-                    self.last_result = self.detector.predict(frame, conf=self.conf, imgsz=640)
-                except Exception:
-                    self.last_result = None'''
+            # Run inference every N frames (commented out – only on scan)
+            # if (self._frame_i % self.infer_every) == 0:
+            #     try:
+            #         self.last_result = self.detector.predict(frame, conf=self.conf, imgsz=640)
+            #     except Exception:
+            #         self.last_result = None
 
-            # Draw annotations
+            # Draw annotations (currently none, only raw camera)
             annotated = frame.copy()
-            '''if self.last_result is not None:
-                try:
-                    if hasattr(self.last_result, 'boxes') and len(self.last_result.boxes.xyxy) > 0:
-                        annotated = self.draw_kernel_grade_price(annotated, self.last_result)
-                        annotated = self.draw_defects_feedback(annotated, self.last_result)
-                except Exception:
-                    pass '''
+            # if self.last_result is not None:
+            #     try:
+            #         if hasattr(self.last_result, 'boxes') and len(self.last_result.boxes.xyxy) > 0:
+            #             annotated = self.draw_kernel_grade_price(annotated, self.last_result)
+            #             annotated = self.draw_defects_feedback(annotated, self.last_result)
+            #     except Exception:
+            #         pass
 
             self._show_frame(annotated)
 
@@ -553,27 +543,27 @@ class ScannerPage(QWidget):
             <tr><td><b>Date:</b></td><td>{date_str}</td></tr>
             <tr><td><b>Time:</b></td><td>{time_str}</td></tr>
             <tr><td><b>Max Price:</b></td><td>Php{max_price:.2f}/kg</td></tr>
-         </table>
+        </table>
 
         <h3>📉 DEFECT COUNTS</h3>
         <table width='100%' border='1' cellpadding='4'>
             <tr><th>Defect Type</th><th>Count</th></tr>
             {"".join(f"<tr><td>{d.split(':')[0]}</td><td>{d.split(':')[1]}</td></tr>" for d in defect_lines)}
-         </table>
+        </table>
 
         <h3>🥜 KERNEL GRADES</h3>
         <table width='100%' border='1' cellpadding='4'>
             <tr><th>Grade</th><th>Count</th></tr>
             <tr><td><b>Total Detected</b></td><td><b>{detected}</b></td></tr>
             {"".join(f"<tr><td>{g.split(':')[0]}</td><td>{g.split(':')[1]}</td></tr>" for g in grade_lines)}
-         </table>
+        </table>
 
         <h3>📈 FINAL RESULTS</h3>
         <table width='100%'>
             <tr><td><b>Tray Avg Score:</b></td><td>{tray_avg:.2f}</td></tr>
             <tr><td><b>Tray Avg Grade:</b></td><td>{tray_grade}</td></tr>
             <tr><td><b>Estimated Price:</b></td><td>Php{price_per_kg:.2f}/kg</td></tr>
-         </table>
+        </table>
 
         <p><small><b>PDF saved at:</b><br>{pdf_path}</small></p>
         """

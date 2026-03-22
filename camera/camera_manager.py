@@ -17,10 +17,11 @@ _camera = None
 _using_picamera = False
 
 
-def init_camera(index=0, width=1280, height=720, fps=30, use_picamera=True):
+def init_camera(index=0, width=1750, height=1300, fps=None, use_picamera=True):
     """
     Initializes a single global camera instance.
-    Resolution is now set to 1280x1280 (square) for direct model input.
+    Default resolution is 2304x1296 (can be overridden).
+    FPS is read from app_settings if not provided, otherwise defaults to 30.
     """
     global _camera, _using_picamera
 
@@ -30,6 +31,14 @@ def init_camera(index=0, width=1280, height=720, fps=30, use_picamera=True):
             return True
         elif hasattr(_camera, 'isOpened') and _camera.isOpened():
             return True
+
+    # Determine FPS
+    if fps is None:
+        try:
+            from utils.app_settings import get_camera_fps
+            fps = get_camera_fps()
+        except ImportError:
+            fps = 30
 
     # Release any existing camera
     release_camera()
@@ -72,13 +81,6 @@ def init_camera(index=0, width=1280, height=720, fps=30, use_picamera=True):
         # Try picamera2 first (for Camera Module 3)
         if use_picamera and PICAMERA_AVAILABLE:
             try:
-                # Load fps from app_settings if available, else use argument
-                try:
-                    from utils.app_settings import get_camera_fps
-                    fps = get_camera_fps()
-                except ImportError:
-                    pass  # keep passed fps
-
                 # Flip settings (if needed)
                 try:
                     from utils.app_settings import get_camera_hflip, get_camera_vflip
@@ -240,7 +242,7 @@ def release_camera():
     _using_picamera = False
 
 
-def restart_camera(index=0, width=1280, height=720, fps=30, use_picamera=True):
+def restart_camera(index=0, width=1750, height=1300, fps=None, use_picamera=True):
     release_camera()
     time.sleep(1)
     return init_camera(index, width, height, fps, use_picamera)

@@ -18,7 +18,7 @@ MAX_SCORE = 100.0
 PENALTY = {
     "damage": 30,
     "shriveled": 12,
-    "broken": 8,
+    "broken": 9,
 }
 ALLOWED_DEFECTS = set(PENALTY.keys())   # normal is not a defect
 
