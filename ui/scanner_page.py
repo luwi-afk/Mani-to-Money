@@ -212,7 +212,7 @@ class ScannerPage(QWidget):
     def start_camera(self):
         try:
             from utils.app_settings import get_camera_fps
-            width, height = 1750, 1300
+            width, height = 640, 640
             fps = get_camera_fps()
 
             if not init_camera(width=width, height=height, fps=fps):
@@ -310,13 +310,11 @@ class ScannerPage(QWidget):
 
     # ---- Realtime loop ----
     def update_frame(self):
-
         if not self.camera:
             return
 
         try:
             ok, frame = read_camera()
-
             if not ok or frame is None:
                 self._failed_reads += 1
                 if self._failed_reads > 10:
@@ -335,50 +333,48 @@ class ScannerPage(QWidget):
 
             # Run inference every N frames
             if (self._frame_i % self.infer_every) == 0:
-
                 try:
                     self.last_result = self.detector.predict(
-                        frame,
-                        conf=self.conf,
-                        imgsz=640
+                        frame, conf=self.conf, imgsz=640
                     )
                 except Exception:
                     self.last_result = None
 
                 if self.last_result is not None:
-
                     try:
                         from logics.grading_pricing_func import (
                             assign_boxes_to_contours_all_classes,
                             compute_kernel_results_from_kernel_data
                         )
-                        # Step 1: detect kernel contours
+                        # Detect kernel contours
                         contours = detect_kernel_contours(frame)
 
-                        # Step 2: assign YOLO boxes to contours
+                        # Assign YOLO boxes to contours
                         kernel_data = assign_boxes_to_contours_all_classes(
-                            contours,
-                            self.last_result,
+                            contours, self.last_result
                         )
 
                         if kernel_data:
-                            # Step 3: compute grading
-                            kernel_results, tray_avg, tray_grade, price = \
+                            # Compute grading and store the results
+                            self.last_kernel_results, self.last_tray_avg, \
+                                self.last_tray_grade, self.last_price = \
                                 compute_kernel_results_from_kernel_data(
                                     kernel_data,
                                     max_price_per_kg=get_max_price_per_kg()
                                 )
-
-                            # Step 4: draw annotations
-                            annotated = _draw_kernel_grade_price(
-                                annotated,
-                                kernel_results
-                            )
-
+                        else:
+                            self.last_kernel_results = None
                     except Exception as e:
                         print("Preview pipeline error:", e)
+                        self.last_kernel_results = None
+                else:
+                    self.last_kernel_results = None
 
-            # Show frame
+            # Draw the last available results on the current frame
+            if hasattr(self, 'last_kernel_results') and self.last_kernel_results:
+                annotated = _draw_kernel_grade_price(annotated, self.last_kernel_results)
+
+            # Show the frame
             self._show_frame(annotated)
 
         except Exception as e:
@@ -460,7 +456,7 @@ class ScannerPage(QWidget):
         detected = len(kernel_results or [])
         defect_order = ["broken", "damage", "shriveled"]
         defect_lines = [f"{d}: {defect_counts.get(d, 0)}" for d in defect_order]
-        grade_order = ["Extra Class", "Class I", "Class II", "Reject / Non-trade"]
+        grade_order = ["Extra Class", "Class I", "Class II", "Non-trade"]
         grade_lines = [f"{g}: {class_counts.get(g, 0)}" for g in grade_order]
 
         if detected == 0:

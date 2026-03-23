@@ -17,7 +17,7 @@ _camera = None
 _using_picamera = False
 
 
-def init_camera(index=0, width=1750, height=1300, fps=None, use_picamera=True):
+def init_camera(index=0, width=640, height=640, fps=None, use_picamera=True):
     """
     Initializes a single global camera instance.
     Default resolution is 2304x1296 (can be overridden).
