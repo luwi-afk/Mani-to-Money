@@ -293,30 +293,6 @@ class ScannerPage(QWidget):
         self._show_frame(blank)
 
     # ---- Preview drawing methods ----
-    def _draw_kernel_grade_price(frame_bgr, kernel_results):
-        if not kernel_results:
-            return frame_bgr
-        h, w = frame_bgr.shape[:2]
-        sorted_kernels = sorted(kernel_results, key=lambda k: k.get("score", 0), reverse=True)[:50]
-        for k in sorted_kernels:
-            x1, y1, x2, y2 = map(int, k["box"])
-            x1 = max(0, min(w - 1, x1));
-            y1 = max(0, min(h - 1, y1))
-            x2 = max(0, min(w - 1, x2));
-            y2 = max(0, min(h - 1, y2))
-            if x2 <= x1 or y2 <= y1:
-                continue
-            grade = k.get("grade", "Unknown")
-            ppk = float(k.get("price_per_kg", 0.0))
-            # Optionally show defect type
-            defects = k.get("defects", [])
-            defect_str = f" ({', '.join(defects)})" if defects else ""
-            cv2.rectangle(frame_bgr, (x1, y1), (x2, y2), (0, 255, 0) if not defects else (0, 0, 255), 2)
-            text = f"{grade}  Php{ppk:.2f}/kg{defect_str}"
-            ty = max(20, y1 - 8)
-            cv2.putText(frame_bgr, text, (x1, ty), cv2.FONT_HERSHEY_SIMPLEX, 0.55,
-                        (0, 255, 0) if not defects else (0, 0, 255), 2)
-        return frame_bgr
 
     def draw_defects_feedback(self, frame_bgr, result):
         from logics.grading_pricing_func import get_defect_boxes
@@ -334,11 +310,13 @@ class ScannerPage(QWidget):
 
     # ---- Realtime loop ----
     def update_frame(self):
+
         if not self.camera:
             return
 
         try:
             ok, frame = read_camera()
+
             if not ok or frame is None:
                 self._failed_reads += 1
                 if self._failed_reads > 10:
@@ -347,32 +325,64 @@ class ScannerPage(QWidget):
 
             self._failed_reads = 0
 
-            # Flip horizontally for mirror effect
+            # Mirror preview
             frame = cv2.flip(frame, 1)
+
             self.last_frame_bgr = frame.copy()
             self._frame_i += 1
 
-        #Run inference every N frames
-            if (self._frame_i % self.infer_every) == 0:
-                 try:
-                     self.last_result = self.detector.predict(frame, conf=self.conf, imgsz=640)
-                 except Exception:
-                     self.last_result = None
-
-            # Draw annotations (currently none, only raw camera)
             annotated = frame.copy()
-            if self.last_result is not None:
-                 try:
-                     if hasattr(self.last_result, 'boxes') and len(self.last_result.boxes.xyxy) > 0:
-                         annotated = self.draw_kernel_grade_price(annotated, self.last_result)
-                         annotated = self.draw_defects_feedback(annotated, self.last_result)
-                 except Exception:
-                     pass
 
+            # Run inference every N frames
+            if (self._frame_i % self.infer_every) == 0:
+
+                try:
+                    self.last_result = self.detector.predict(
+                        frame,
+                        conf=self.conf,
+                        imgsz=640
+                    )
+                except Exception:
+                    self.last_result = None
+
+                if self.last_result is not None:
+
+                    try:
+                        from logics.grading_pricing_func import (
+                            assign_boxes_to_contours_all_classes,
+                            compute_kernel_results_from_kernel_data
+                        )
+                        # Step 1: detect kernel contours
+                        contours = detect_kernel_contours(frame)
+
+                        # Step 2: assign YOLO boxes to contours
+                        kernel_data = assign_boxes_to_contours_all_classes(
+                            contours,
+                            self.last_result,
+                        )
+
+                        if kernel_data:
+                            # Step 3: compute grading
+                            kernel_results, tray_avg, tray_grade, price = \
+                                compute_kernel_results_from_kernel_data(
+                                    kernel_data,
+                                    max_price_per_kg=get_max_price_per_kg()
+                                )
+
+                            # Step 4: draw annotations
+                            annotated = _draw_kernel_grade_price(
+                                annotated,
+                                kernel_results
+                            )
+
+                    except Exception as e:
+                        print("Preview pipeline error:", e)
+
+            # Show frame
             self._show_frame(annotated)
 
-        except Exception:
-            pass
+        except Exception as e:
+            print("Camera update error:", e)
 
     def _show_frame(self, frame_bgr):
         try:
@@ -438,6 +448,7 @@ class ScannerPage(QWidget):
             )
             return
 
+
         defect_counts = {}
         class_counts = {}
         for k in (kernel_results or []):
@@ -461,6 +472,7 @@ class ScannerPage(QWidget):
             return
 
         max_price = get_max_price_per_kg()
+
         try:
             from utils.ticket import print_ticket
             success = print_ticket(

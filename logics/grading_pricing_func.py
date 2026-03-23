@@ -178,7 +178,7 @@ def assign_boxes_to_contours(contours, detections):
 # YOLO + CONTOUR FUSION
 # -----------------------------
 
-def assign_boxes_to_contours_all_classes(contours, yolo_result, conf_min=0.5):
+def assign_boxes_to_contours_all_classes(contours, yolo_result):
 
     if yolo_result is None or yolo_result.boxes is None:
         return []
