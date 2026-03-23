@@ -66,7 +66,7 @@ def assign_boxes_to_contours_all_classes(contours, yolo_result):
     confs = _to_numpy(yolo_result.boxes.conf).flatten()
     cls_ids = _to_numpy(yolo_result.boxes.cls).flatten().astype(int)
     names = yolo_result.names
-    class_names = ['normal', 'damage', 'shriveled', 'broken']
+    class_names = ['broken','damage','normal', 'shriveled']
 
     kernel_list = []
 

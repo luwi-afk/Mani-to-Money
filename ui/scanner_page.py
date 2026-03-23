@@ -48,8 +48,8 @@ def _draw_kernel_grade_price(frame_bgr, kernel_results, max_price_per_kg=250.0):
 
         # Draw green kernel box
         cv2.rectangle(frame_bgr, (x1, y1), (x2, y2), (0, 255, 0), 2)
-        text = f"{grade}  Php{price:.2f}/kg"
-        cv2.putText(frame_bgr, text, (x1, max(20, y1 - 8)), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 0), 2)
+        text = f"{grade}  P{price:.2f}/kg"
+        cv2.putText(frame_bgr, text, (x1, max(20, y1 - 8)), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 0, 0), 2)
 
         # Draw red defect boxes (skip "normal")
         for d in defects:
@@ -98,7 +98,8 @@ def get_kernel_results_from_frame(frame_bgr, detector, conf=0.50, max_price_per_
 
 # ---------------- Worker Thread ----------------
 class OfflineScanWorker(QThread):
-    finished = pyqtSignal(float, str, float, str, object)
+    # MODIFIED: Added an extra 'object' for the annotated image
+    finished = pyqtSignal(float, str, float, str, object, object)   # tray_avg, tray_grade, price, pdf_path, kernel_results, image
     failed = pyqtSignal(str)
 
     def __init__(self, detector, frame_bgr, yolo_result=None,
@@ -118,7 +119,8 @@ class OfflineScanWorker(QThread):
             )
 
             if not kernel_results:
-                self.finished.emit(0.0, "No Detection", 0.0, "", [])
+                # MODIFIED: Emit with image=None
+                self.finished.emit(0.0, "No Detection", 0.0, "", [], None)
                 return
 
             # Draw annotated image
@@ -150,7 +152,8 @@ class OfflineScanWorker(QThread):
                 kernel_results=kernel_results,
             )
 
-            self.finished.emit(tray_avg, tray_grade, price, pdf_path, kernel_results)
+            # MODIFIED: Emit the annotated image as well
+            self.finished.emit(tray_avg, tray_grade, price, pdf_path, kernel_results, annotated)
 
         except Exception as e:
             import traceback
@@ -414,11 +417,18 @@ class ScannerPage(QWidget):
         except Exception as e:
             print(f"Display error: {e}")
 
-    # ---------------- Scan (unchanged) ----------------
+    # ---------------- Scan ----------------
     def on_scan_clicked(self):
         if self.last_frame_bgr is None:
             QMessageBox.warning(self, "Scan", "No camera frame yet. Please wait for camera feed.")
             return
+
+        # Save live detection state and temporarily disable it
+        self._live_was_enabled = self.live_detection_enabled
+        if self._live_was_enabled:
+            self.live_detection_enabled = False  # stop new live detections
+            # Also stop the frame counter from triggering
+            self.frame_counter = 0
 
         self.scan.setEnabled(False)
         self.scan.setText("Scanning...")
@@ -438,7 +448,13 @@ class ScannerPage(QWidget):
         self.worker.failed.connect(self.on_scan_failed)
         self.worker.start()
 
-    def on_scan_done(self, tray_avg, tray_grade, price_per_kg, pdf_path, kernel_results):
+    def on_scan_done(self, tray_avg, tray_grade, price_per_kg, pdf_path, kernel_results, annotated_image):
+
+        # Restore live detection if it was previously enabled
+        if hasattr(self, '_live_was_enabled') and self._live_was_enabled:
+            self.live_detection_enabled = True
+            self.run_live_detection()
+
         self.scan.setEnabled(True)
         self.scan.setText("Scan")
         self.set_instruction("Position Tray then Click Scan", scanning=False)
@@ -517,24 +533,72 @@ class ScannerPage(QWidget):
         msg_box.setFixedSize(400, 300)
         msg_box.exec_()
 
+        #Pass the annotated image to the detailed report
         if msg_box.clickedButton() == details_btn:
             self.show_full_report(date_str, time_str, max_price, defect_lines,
                                   grade_lines, detected, tray_avg, tray_grade,
-                                  price_per_kg, pdf_path)
+                                  price_per_kg, pdf_path, annotated_image)
 
     def show_full_report(self, date_str, time_str, max_price, defect_lines,
                          grade_lines, detected, tray_avg, tray_grade,
-                         price_per_kg, pdf_path):
-        from PyQt5.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QTextEdit, QPushButton
+                         price_per_kg, pdf_path, annotated_image):
+        from PyQt5.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QTextEdit, QPushButton, QScrollArea, QWidget
+        from PyQt5.QtGui import QPixmap, QImage
 
         dialog = QDialog(self)
         dialog.setWindowTitle("Detailed Scan Report")
-        dialog.resize(500, 450)
+        dialog.resize(1024, 550)
+        dialog.setMinimumSize(800, 500)
 
-        layout = QVBoxLayout(dialog)
+        # Main layout for the dialog (holds the scroll area and close button)
+        main_layout = QVBoxLayout(dialog)
+
+        # Scroll area that contains the entire content (image + report)
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        main_layout.addWidget(scroll_area)
+
+        # Container widget that will hold the image and report
+        container = QWidget()
+        scroll_area.setWidget(container)
+
+        # Vertical layout inside the container
+        container_layout = QVBoxLayout(container)
+        container_layout.setSpacing(10)
+
+        # ---- Image section ----
+        if annotated_image is not None:
+            # Convert BGR to RGB
+            rgb = cv2.cvtColor(annotated_image, cv2.COLOR_BGR2RGB)
+            h, w, ch = rgb.shape
+            bytes_per_line = ch * w
+            qimg = QImage(rgb.data, w, h, bytes_per_line, QImage.Format_RGB888)
+            pixmap = QPixmap.fromImage(qimg)
+
+            # Scale down if too large to keep a reasonable size, but still scrollable if needed
+            max_width = 800
+            max_height = 600
+            if pixmap.width() > max_width or pixmap.height() > max_height:
+                pixmap = pixmap.scaled(max_width, max_height, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+
+            label_img = QLabel()
+            label_img.setPixmap(pixmap)
+            label_img.setAlignment(Qt.AlignCenter)
+            label_img.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+            container_layout.addWidget(label_img)
+        else:
+            label_img = QLabel("No image available")
+            label_img.setAlignment(Qt.AlignCenter)
+            label_img.setMinimumHeight(200)
+            container_layout.addWidget(label_img)
+
+        # ---- Report text section ----
         text_edit = QTextEdit()
         text_edit.setReadOnly(True)
+        text_edit.setMinimumHeight(300)  # Ensure text area has enough space
+        container_layout.addWidget(text_edit)
 
+        # Build HTML (same as before)
         html = f"""
         <h2>📊 DETAILED SCAN REPORT</h2>
         <hr>
@@ -542,7 +606,7 @@ class ScannerPage(QWidget):
             <tr><td><b>Date:</b></td><td>{date_str}</td></tr>
             <tr><td><b>Time:</b></td><td>{time_str}</td></tr>
             <tr><td><b>Max Price:</b></td><td>Php{max_price:.2f}/kg</td></tr>
-         </table>
+        </table>
 
         <h3>📉 DEFECT COUNTS</h3>
         <table width='100%' border='1' cellpadding='4'>
@@ -567,8 +631,8 @@ class ScannerPage(QWidget):
         <p><small><b>PDF saved at:</b><br>{pdf_path}</small></p>
         """
         text_edit.setHtml(html)
-        layout.addWidget(text_edit)
 
+        # Close button
         btn_layout = QHBoxLayout()
         btn_layout.addStretch()
         close_btn = QPushButton("Close")
@@ -576,11 +640,15 @@ class ScannerPage(QWidget):
         close_btn.setFixedSize(100, 30)
         btn_layout.addWidget(close_btn)
         btn_layout.addStretch()
-        layout.addLayout(btn_layout)
+        main_layout.addLayout(btn_layout)
 
         dialog.exec_()
 
     def on_scan_failed(self, msg: str):
+        if hasattr(self, '_live_was_enabled') and self._live_was_enabled:
+            self.live_detection_enabled = True
+            self.run_live_detection()
+
         self.scan.setEnabled(True)
         self.scan.setText("Scan")
         self.set_instruction("Position Tray then Click Scan", scanning=False)

@@ -103,6 +103,6 @@ def generate_scan_report(
     # ---------- final numbers ----------
     story.append(Paragraph(f"Tray Avg Score: {tray_avg_score:.2f}", styles["Normal"]))
     story.append(Paragraph(f"Tray Avg Grade: {tray_grade}", styles["Normal"]))
-    story.append(Paragraph(f"Estimated Price per Kg: ₱{price_per_kg:.2f} per kg", styles["Normal"]))
+    story.append(Paragraph(f"Estimated Price per Kg: P{price_per_kg:.2f} per kg", styles["Normal"]))
 
     doc.build(story)
