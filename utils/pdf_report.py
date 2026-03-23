@@ -39,12 +39,17 @@ def generate_scan_report(
     defect_counts = {}
     class_counts = {}
 
+    defect_counts = {}
+    class_counts = {}
+
     for k in (kernel_results or []):
         g = k.get("grade", "Unknown")
         class_counts[g] = class_counts.get(g, 0) + 1
 
         for d in k.get("defects", []):
-            defect_counts[d] = defect_counts.get(d, 0) + 1
+            label = str(d.get("label", "")).lower()  # use label string
+            if label:
+                defect_counts[label] = defect_counts.get(label, 0) + 1
 
     detected = len(kernel_results or [])
 

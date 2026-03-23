@@ -1,6 +1,5 @@
 import cv2
 import numpy as np
-import ncnn
 
 def run_yolo(net, frame_bgr, imgsz=640, conf_thresh=0.50, iou_thresh=0.45):
     h0, w0 = frame_bgr.shape[:2]
@@ -107,41 +106,37 @@ def run_yolo(net, frame_bgr, imgsz=640, conf_thresh=0.50, iou_thresh=0.45):
 def detect_kernel_contours(frame_bgr, target_size=640):
     """
     Detect peanut kernels on a tray with holes.
-    Works on any resolution by first resizing to target_size.
-    Returns a list of dicts: {"box": [x1, y1, x2, y2], "area": area}
-    (coordinates are in the original image space).
+    Returns list of dicts: {"box": [x1, y1, x2, y2], "area": area}
+    Coordinates are in the original image space.
     """
     h0, w0 = frame_bgr.shape[:2]
 
-    # Resize to target_size for consistent processing
+    # Resize for consistent processing
     frame_resized = cv2.resize(frame_bgr, (target_size, target_size))
 
-    # Convert to grayscale and apply mild blur
     gray = cv2.cvtColor(frame_resized, cv2.COLOR_BGR2GRAY)
     blur = cv2.GaussianBlur(gray, (5, 5), 0)
 
-    # Adaptive thresholding to handle uneven lighting
-    thresh = cv2.adaptiveThreshold(blur, 255,
-                                   cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-                                   cv2.THRESH_BINARY_INV,
-                                   15, 2)
+    thresh = cv2.adaptiveThreshold(
+        blur, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+        cv2.THRESH_BINARY_INV, 15, 2
+    )
 
-    # Morphological closing to fill small holes
     kernel = np.ones((3, 3), np.uint8)
     closed = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel, iterations=2)
-
-    # Opening to remove small specks
     opened = cv2.morphologyEx(closed, cv2.MORPH_OPEN, kernel, iterations=1)
 
-    # Find external contours
     contours, _ = cv2.findContours(opened, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
-    # Prepare to store valid kernel boxes (in resized coordinates)
     resized_boxes = []
 
-    # Thresholds tuned for 640 image
-    min_area = 400
-    max_area = 3000
+    # Relaxed thresholds for detection
+    min_area = 100
+    max_area = 5000
+    min_circularity = 0.3
+    max_circularity = 1.2
+    min_aspect = 0.3
+    max_aspect = 3.0
 
     for c in contours:
         area = cv2.contourArea(c)
@@ -151,13 +146,14 @@ def detect_kernel_contours(frame_bgr, target_size=640):
         perimeter = cv2.arcLength(c, True)
         if perimeter == 0:
             continue
+
         circularity = 4 * np.pi * area / (perimeter * perimeter)
-        if circularity < 0.5 or circularity > 0.95:
+        if circularity < min_circularity or circularity > max_circularity:
             continue
 
         x, y, w, h = cv2.boundingRect(c)
         aspect_ratio = w / float(h)
-        if aspect_ratio < 0.5 or aspect_ratio > 2.0:
+        if aspect_ratio < min_aspect or aspect_ratio > max_aspect:
             continue
 
         resized_boxes.append({"box": [x, y, x + w, y + h], "area": area})
@@ -170,6 +166,7 @@ def detect_kernel_contours(frame_bgr, target_size=640):
         x1, y1, x2, y2 = box["box"]
         original_boxes.append({
             "box": [x1 * scale_x, y1 * scale_y, x2 * scale_x, y2 * scale_y],
-            "area": box["area"] * (scale_x * scale_y)   # area scaled
+            "area": box["area"] * (scale_x * scale_y)
         })
+
     return original_boxes

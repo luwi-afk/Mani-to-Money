@@ -7,7 +7,7 @@ from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal
 from PyQt5.QtGui import QPixmap, QImage, QPainter
 from PyQt5.QtWidgets import (
     QWidget, QLabel, QPushButton, QVBoxLayout, QHBoxLayout,
-    QMessageBox, QSizePolicy
+    QMessageBox, QSizePolicy, QCheckBox
 )
 
 from camera.camera_manager import (
@@ -20,47 +20,83 @@ from utils.pdf_report import generate_scan_report
 from utils.app_settings import get_max_price_per_kg
 from utils.vision_utils import detect_kernel_contours
 
-
 # ---------------- Shared annotation helpers ----------------
-def _draw_kernel_grade_price(frame_bgr, kernel_results):
+def _draw_kernel_grade_price(frame_bgr, kernel_results, max_price_per_kg=250.0):
+    """Draw kernel boxes and labels."""
     if not kernel_results:
         return frame_bgr
+
     h, w = frame_bgr.shape[:2]
+
     sorted_kernels = sorted(kernel_results, key=lambda k: k.get("score", 0), reverse=True)[:50]
+
     for k in sorted_kernels:
         x1, y1, x2, y2 = map(int, k["box"])
         x1 = max(0, min(w-1, x1)); y1 = max(0, min(h-1, y1))
         x2 = max(0, min(w-1, x2)); y2 = max(0, min(h-1, y2))
+
         if x2 <= x1 or y2 <= y1:
             continue
-        grade = k.get("grade", "Unknown")
-        ppk = float(k.get("price_per_kg", 0.0))
-        # Optionally show defect type
+
         defects = k.get("defects", [])
-        defect_str = f" ({', '.join(defects)})" if defects else ""
-        cv2.rectangle(frame_bgr, (x1, y1), (x2, y2), (0,255,0) if not defects else (0,0,255), 2)
-        text = f"{grade}  Php{ppk:.2f}/kg{defect_str}"
-        ty = max(20, y1-8)
-        cv2.putText(frame_bgr, text, (x1, ty), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0,255,0) if not defects else (0,0,255), 2)
+        grade = k.get("grade", "Unknown")
+        price = float(k.get("price_per_kg", 0.0))
+        has_normal = k.get("has_normal", False)
+
+        if not defects and has_normal:
+            price = k.get("max_price", max_price_per_kg)
+
+        # Draw green kernel box
+        cv2.rectangle(frame_bgr, (x1, y1), (x2, y2), (0, 255, 0), 2)
+        text = f"{grade}  Php{price:.2f}/kg"
+        cv2.putText(frame_bgr, text, (x1, max(20, y1 - 8)), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 0), 2)
+
+        # Draw red defect boxes (skip "normal")
+        for d in defects:
+            label = str(d.get("label", "")).strip().lower()
+            if label == "normal":
+                continue
+            dx1, dy1, dx2, dy2 = map(int, d.get("box", [0, 0, 0, 0]))
+            dx1 = max(0, min(w-1, dx1)); dy1 = max(0, min(h-1, dy1))
+            dx2 = max(0, min(w-1, dx2)); dy2 = max(0, min(h-1, dy2))
+            if dx2 <= dx1 or dy2 <= dy1:
+                continue
+            cv2.rectangle(frame_bgr, (dx1, dy1), (dx2, dy2), (0, 0, 255), 2)
+            cv2.putText(frame_bgr, label, (dx1, max(20, dy1 - 6)), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 0, 255), 2)
+
     return frame_bgr
 
-def _draw_defects(frame_bgr, defects):
-    if not defects:
-        return frame_bgr
-    h, w = frame_bgr.shape[:2]
-    sorted_defects = sorted(defects, key=lambda d: d.get("conf", 0), reverse=True)[:50]
-    for d in sorted_defects:
-        x1, y1, x2, y2 = map(int, d["box"])
-        x1 = max(0, min(w-1, x1)); y1 = max(0, min(h-1, y1))
-        x2 = max(0, min(w-1, x2)); y2 = max(0, min(h-1, y2))
-        if x2 <= x1 or y2 <= y1:
-            continue
-        label = str(d.get("label", "")).strip()
-        cv2.rectangle(frame_bgr, (x1, y1), (x2, y2), (0,0,255), 2)
-        cv2.putText(frame_bgr, label, (x1, max(20, y1-6)), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0,0,255), 2)
-    return frame_bgr
+# ---------------- Helper function for detection & grading ----------------
+def get_kernel_results_from_frame(frame_bgr, detector, conf=0.50, max_price_per_kg=250.0):
+    """
+    Run detection on a frame, map boxes to kernel contours, and compute grades/prices.
+    Returns (kernel_results, tray_avg_score, tray_grade, estimated_price_per_kg)
+    """
+    from logics.grading_pricing_func import (
+        assign_boxes_to_contours_all_classes,
+        compute_kernel_results_from_kernel_data
+    )
 
+    # Run detection
+    result = detector.predict(frame_bgr, conf=conf, imgsz=640)
+    if result is None:
+        return [], 0.0, "No Detection", 0.0
 
+    # Detect contours
+    contours = detect_kernel_contours(frame_bgr)
+    kernel_data = assign_boxes_to_contours_all_classes(contours, result)
+
+    if not kernel_data:
+        return [], 0.0, "No Detection", 0.0
+
+    # Compute grades, prices
+    kernel_results, tray_avg, tray_grade, price = compute_kernel_results_from_kernel_data(
+        kernel_data, max_price_per_kg=max_price_per_kg
+    )
+
+    return kernel_results, tray_avg, tray_grade, price
+
+# ---------------- Worker Thread ----------------
 class OfflineScanWorker(QThread):
     finished = pyqtSignal(float, str, float, str, object)
     failed = pyqtSignal(str)
@@ -76,45 +112,28 @@ class OfflineScanWorker(QThread):
 
     def run(self):
         try:
-            from logics.grading_pricing_func import (
-                assign_boxes_to_contours_all_classes,
-                compute_kernel_results_from_kernel_data
+            # Use the helper function
+            kernel_results, tray_avg, tray_grade, price = get_kernel_results_from_frame(
+                self.frame_bgr, self.detector, self.conf, self.max_price_per_kg
             )
-            from utils.vision_utils import detect_kernel_contours
-            from utils.file_utils import project_path, ensure_dir
-            from utils.pdf_report import generate_scan_report
-            from datetime import datetime
-            import os
-            import cv2
 
-            # Run inference if not provided
-            if self.yolo_result is not None:
-                result = self.yolo_result
-            else:
-                result = self.detector.predict(self.frame_bgr, conf=self.conf, imgsz=640)
-
-            if result is None:
-                self.failed.emit("Detection returned None")
-                return
-
-            # Detect contours (candidate kernels)
-            contours = detect_kernel_contours(self.frame_bgr)
-
-            # Assign all YOLO boxes to contours
-            kernel_data = assign_boxes_to_contours_all_classes(contours, result, conf_min=0.50)
-
-            if not kernel_data:
+            if not kernel_results:
                 self.finished.emit(0.0, "No Detection", 0.0, "", [])
                 return
 
-            # Compute grades, prices, etc.
-            kernel_results, tray_avg, tray_grade, price = compute_kernel_results_from_kernel_data(
-                kernel_data, max_price_per_kg=self.max_price_per_kg
+            # Draw annotated image
+            annotated = _draw_kernel_grade_price(
+                self.frame_bgr.copy(), kernel_results, self.max_price_per_kg
             )
 
-            # Generate annotated image
-            annotated = self.frame_bgr.copy()
-            annotated = _draw_kernel_grade_price(annotated, kernel_results)  # uses global helper
+            # Count defects for PDF
+            defect_counts = {}
+            for k in kernel_results or []:
+                for d in k.get("defects", []):
+                    label = str(d.get("label", "")).lower()
+                    if label:
+                        defect_counts[label] = defect_counts.get(label, 0) + 1
+            defect_lines = [f"{label}:{count}" for label, count in defect_counts.items()]
 
             # Save PDF
             out_dir = project_path("receipts")
@@ -128,7 +147,7 @@ class OfflineScanWorker(QThread):
                 tray_avg_score=tray_avg,
                 tray_grade=tray_grade,
                 price_per_kg=price,
-                kernel_results=kernel_results
+                kernel_results=kernel_results,
             )
 
             self.finished.emit(tray_avg, tray_grade, price, pdf_path, kernel_results)
@@ -138,6 +157,7 @@ class OfflineScanWorker(QThread):
             traceback.print_exc()
             self.failed.emit(str(e) + "\n" + traceback.format_exc())
 
+# ---------------- Scanner Page ----------------
 class ScannerPage(QWidget):
 
     printer_status_changed = pyqtSignal(str, bool)
@@ -146,19 +166,26 @@ class ScannerPage(QWidget):
         super().__init__()
 
         self.camera = None
-        self.detector = PeanutDetector()
+        self.detector = PeanutDetector("models/best.pt")
         self.conf = 0.50
         self.last_frame_bgr = None
         self.last_result = None
         self._frame_i = 0
-        self.infer_every = 6
         self._failed_reads = 0
         self._using_module3 = False
 
+        # Live detection members (frame-skipping)
+        self.live_detection_enabled = False
+        self.live_result = None                     # stores kernel_results for live display
+        self.live_inference_every_n_frames = 5      # Run detection every 5 frames (adjust this)
+        self.frame_counter = 0
+
+        # UI setup
         layout = QVBoxLayout(self)
         layout.setContentsMargins(5, 5, 5, 5)
         layout.setSpacing(10)
 
+        # Instruction label
         self.instruction = QLabel("Position Tray then Click Scan")
         self.instruction.setAlignment(Qt.AlignCenter)
         self.instruction.setFixedHeight(38)
@@ -174,6 +201,7 @@ class ScannerPage(QWidget):
         """)
         layout.addWidget(self.instruction)
 
+        # Video preview
         self.video = QLabel()
         self.video.setMinimumSize(765, 420)
         self.video.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
@@ -181,6 +209,17 @@ class ScannerPage(QWidget):
         self.video.setStyleSheet("background: transparent;")
         layout.addWidget(self.video, stretch=1)
 
+        # Control panel (checkboxes and scan button)
+        controls = QHBoxLayout()
+        controls.setAlignment(Qt.AlignCenter)
+
+        # Live detection checkbox
+        self.live_checkbox = QCheckBox("Live Detection")
+        self.live_checkbox.setStyleSheet("font-size: 14px; font-weight: bold;")
+        self.live_checkbox.toggled.connect(self.toggle_live_detection)
+        controls.addWidget(self.live_checkbox)
+
+        # Scan button container
         btn_container = QWidget()
         btn_container.setFixedSize(160, 70)
         btns = QHBoxLayout(btn_container)
@@ -204,11 +243,39 @@ class ScannerPage(QWidget):
         self.scan.clicked.connect(self.on_scan_clicked)
 
         btns.addWidget(self.scan)
-        layout.addWidget(btn_container, alignment=Qt.AlignCenter)
+        controls.addWidget(btn_container)
+
+        layout.addLayout(controls)
 
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.update_frame)
 
+    # ---------------- Live detection toggling ----------------
+    def toggle_live_detection(self, checked):
+        self.live_detection_enabled = checked
+        if not checked:
+            self.live_result = None   # clear old results when turned off
+        # (No timer start/stop needed; detection is triggered by frame counter)
+
+    def run_live_detection(self):
+        """Runs detection on the latest frame and stores results."""
+        if not self.live_detection_enabled:
+            return
+        if self.last_frame_bgr is None:
+            return
+
+        # Copy the clean frame (detection may be heavy)
+        frame_copy = self.last_frame_bgr.copy()
+        try:
+            # Use helper function to get kernel results
+            kernel_results, _, _, _ = get_kernel_results_from_frame(
+                frame_copy, self.detector, self.conf, get_max_price_per_kg()
+            )
+            self.live_result = kernel_results
+        except Exception as e:
+            print(f"Live detection error: {e}")
+
+    # ---------------- Camera ----------------
     def start_camera(self):
         try:
             from utils.app_settings import get_camera_fps
@@ -230,12 +297,15 @@ class ScannerPage(QWidget):
             self._frame_i = 0
             self._failed_reads = 0
 
+            # Reset frame counter for consistent start
+            self.frame_counter = 0
+
             self.scan.setEnabled(True)
             self.scan.setText("Scan")
             self.set_instruction("Position Tray then Click Scan", scanning=False)
 
             if not self.timer.isActive():
-                self.timer.start(30)
+                self.timer.start(30)   # ~33 fps, adjust as needed
 
             return True
 
@@ -246,15 +316,12 @@ class ScannerPage(QWidget):
     def stop_camera(self):
         if self.timer.isActive():
             self.timer.stop()
-
         self.video.clear()
         self.last_frame_bgr = None
         self.last_result = None
-
         release_camera()
         self.camera = None
         self._using_module3 = False
-
         self.scan.setEnabled(True)
         self.scan.setText("Scan")
         self.set_instruction("Position Tray then Click Scan", scanning=False)
@@ -292,27 +359,10 @@ class ScannerPage(QWidget):
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (200, 200, 200), 1)
         self._show_frame(blank)
 
-    # ---- Preview drawing methods ----
-
-    def draw_defects_feedback(self, frame_bgr, result):
-        from logics.grading_pricing_func import get_defect_boxes
-
-        if result is None or result.boxes is None or len(result.boxes.xyxy) == 0:
-            return frame_bgr
-
-        defects = get_defect_boxes(
-            result,
-            conf_min=0.50,
-            kernel_label="normal"
-        )
-
-        return _draw_defects(frame_bgr, defects)
-
-    # ---- Realtime loop ----
+    # ---------------- Frame Handling ----------------
     def update_frame(self):
         if not self.camera:
             return
-
         try:
             ok, frame = read_camera()
             if not ok or frame is None:
@@ -320,77 +370,39 @@ class ScannerPage(QWidget):
                 if self._failed_reads > 10:
                     self._show_no_signal()
                 return
-
             self._failed_reads = 0
-
-            # Mirror preview
             frame = cv2.flip(frame, 1)
-
             self.last_frame_bgr = frame.copy()
-            self._frame_i += 1
 
-            annotated = frame.copy()
+            # Live detection with frame skipping
+            if self.live_detection_enabled:
+                self.frame_counter += 1
+                if self.frame_counter >= self.live_inference_every_n_frames:
+                    self.frame_counter = 0
+                    self.run_live_detection()   # runs detection on the latest frame
 
-            # Run inference every N frames
-            if (self._frame_i % self.infer_every) == 0:
-                try:
-                    self.last_result = self.detector.predict(
-                        frame, conf=self.conf, imgsz=640
-                    )
-                except Exception:
-                    self.last_result = None
-
-                if self.last_result is not None:
-                    try:
-                        from logics.grading_pricing_func import (
-                            assign_boxes_to_contours_all_classes,
-                            compute_kernel_results_from_kernel_data
-                        )
-                        # Detect kernel contours
-                        contours = detect_kernel_contours(frame)
-
-                        # Assign YOLO boxes to contours
-                        kernel_data = assign_boxes_to_contours_all_classes(
-                            contours, self.last_result
-                        )
-
-                        if kernel_data:
-                            # Compute grading and store the results
-                            self.last_kernel_results, self.last_tray_avg, \
-                                self.last_tray_grade, self.last_price = \
-                                compute_kernel_results_from_kernel_data(
-                                    kernel_data,
-                                    max_price_per_kg=get_max_price_per_kg()
-                                )
-                        else:
-                            self.last_kernel_results = None
-                    except Exception as e:
-                        print("Preview pipeline error:", e)
-                        self.last_kernel_results = None
-                else:
-                    self.last_kernel_results = None
-
-            # Draw the last available results on the current frame
-            if hasattr(self, 'last_kernel_results') and self.last_kernel_results:
-                annotated = _draw_kernel_grade_price(annotated, self.last_kernel_results)
-
-            # Show the frame
-            self._show_frame(annotated)
-
+            self._show_frame(frame)
         except Exception as e:
             print("Camera update error:", e)
 
     def _show_frame(self, frame_bgr):
         try:
-            rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+            # If live detection is enabled and we have results, draw them on a copy
+            if self.live_detection_enabled and self.live_result is not None:
+                display_frame = frame_bgr.copy()
+                display_frame = _draw_kernel_grade_price(
+                    display_frame, self.live_result, get_max_price_per_kg()
+                )
+            else:
+                display_frame = frame_bgr
+
+            rgb = cv2.cvtColor(display_frame, cv2.COLOR_BGR2RGB)
             h, w, ch = rgb.shape
             bytes_per_line = ch * w
             qimg = QImage(rgb.data, w, h, bytes_per_line, QImage.Format_RGB888).copy()
             pix = QPixmap.fromImage(qimg)
-
             label_size = self.video.size()
             scaled_pix = pix.scaled(label_size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-
             final_pix = QPixmap(label_size)
             final_pix.fill(Qt.transparent)
             painter = QPainter(final_pix)
@@ -398,12 +410,11 @@ class ScannerPage(QWidget):
             y = (label_size.height() - scaled_pix.height()) // 2
             painter.drawPixmap(x, y, scaled_pix)
             painter.end()
-
             self.video.setPixmap(final_pix)
         except Exception as e:
             print(f"Display error: {e}")
 
-    # ---- Scan button ----
+    # ---------------- Scan (unchanged) ----------------
     def on_scan_clicked(self):
         if self.last_frame_bgr is None:
             QMessageBox.warning(self, "Scan", "No camera frame yet. Please wait for camera feed.")
@@ -419,7 +430,7 @@ class ScannerPage(QWidget):
         self.worker = OfflineScanWorker(
             detector=self.detector,
             frame_bgr=frame,
-            yolo_result=None,  # force fresh inference
+            yolo_result=None,
             conf=self.conf,
             max_price_per_kg=max_price
         )
@@ -432,40 +443,31 @@ class ScannerPage(QWidget):
         self.scan.setText("Scan")
         self.set_instruction("Position Tray then Click Scan", scanning=False)
 
+        detected = sum(
+            1 for k in kernel_results if k.get("grade") or k.get("has_normal", False)
+        )
+
         if not pdf_path and not kernel_results:
             QMessageBox.warning(
                 self,
                 "Scan Failed",
-                "No peanut kernels detected.\n\n"
-                "Try again with:\n"
-                "• Better lighting\n"
-                "• Proper tray positioning\n"
-                "• Clear view of kernels"
+                "No peanut kernels detected.\nTry again with better lighting or positioning."
             )
             return
 
-
+        # Count defects and grades
         defect_counts = {}
         class_counts = {}
         for k in (kernel_results or []):
             g = k.get("grade", "Unknown")
             class_counts[g] = class_counts.get(g, 0) + 1
             for d in k.get("defects", []):
-                defect_counts[d] = defect_counts.get(d, 0) + 1
+                label = d.get("label", "").lower()
+                if label:
+                    defect_counts[label] = defect_counts.get(label, 0) + 1
 
-        detected = len(kernel_results or [])
-        defect_order = ["broken", "damage", "shriveled"]
-        defect_lines = [f"{d}: {defect_counts.get(d, 0)}" for d in defect_order]
-        grade_order = ["Extra Class", "Class I", "Class II", "Non-trade"]
-        grade_lines = [f"{g}: {class_counts.get(g, 0)}" for g in grade_order]
-
-        if detected == 0:
-            QMessageBox.warning(
-                self,
-                "Scan Complete",
-                "No peanut kernels detected.\nTry again with better lighting or positioning."
-            )
-            return
+        defect_lines = [f"{k}:{v}" for k, v in defect_counts.items()]
+        grade_lines = [f"{k}:{v}" for k, v in class_counts.items()]
 
         max_price = get_max_price_per_kg()
 
@@ -489,10 +491,10 @@ class ScannerPage(QWidget):
             print(f"Ticket printing error: {e}")
             self.printer_status_changed.emit("Error", False)
 
+        # Show summary
         now = datetime.now()
         date_str = now.strftime("%Y-%m-%d")
         time_str = now.strftime("%H:%M:%S")
-
         summary_msg = (
             f"✅ SCAN COMPLETE\n"
             f"━━━━━━━━━━━━━━━━\n"
@@ -513,7 +515,7 @@ class ScannerPage(QWidget):
         msg_box.setStandardButtons(QMessageBox.Ok)
         details_btn = msg_box.addButton("View Details", QMessageBox.ActionRole)
         msg_box.setFixedSize(400, 300)
-        result = msg_box.exec_()
+        msg_box.exec_()
 
         if msg_box.clickedButton() == details_btn:
             self.show_full_report(date_str, time_str, max_price, defect_lines,
@@ -540,7 +542,7 @@ class ScannerPage(QWidget):
             <tr><td><b>Date:</b></td><td>{date_str}</td></tr>
             <tr><td><b>Time:</b></td><td>{time_str}</td></tr>
             <tr><td><b>Max Price:</b></td><td>Php{max_price:.2f}/kg</td></tr>
-        </table>
+         </table>
 
         <h3>📉 DEFECT COUNTS</h3>
         <table width='100%' border='1' cellpadding='4'>
