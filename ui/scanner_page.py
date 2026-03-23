@@ -91,7 +91,7 @@ class OfflineScanWorker(QThread):
             if self.yolo_result is not None:
                 result = self.yolo_result
             else:
-                result = self.detector.predict(self.frame_bgr, conf=self.conf, imgsz=1280)
+                result = self.detector.predict(self.frame_bgr, conf=self.conf, imgsz=640)
 
             if result is None:
                 self.failed.emit("Detection returned None")
@@ -353,21 +353,21 @@ class ScannerPage(QWidget):
             self._frame_i += 1
 
         #Run inference every N frames
-            '''if (self._frame_i % self.infer_every) == 0:
+            if (self._frame_i % self.infer_every) == 0:
                  try:
                      self.last_result = self.detector.predict(frame, conf=self.conf, imgsz=640)
                  except Exception:
-                     self.last_result = None'''
+                     self.last_result = None
 
             # Draw annotations (currently none, only raw camera)
             annotated = frame.copy()
-            '''if self.last_result is not None:
+            if self.last_result is not None:
                  try:
                      if hasattr(self.last_result, 'boxes') and len(self.last_result.boxes.xyxy) > 0:
                          annotated = self.draw_kernel_grade_price(annotated, self.last_result)
                          annotated = self.draw_defects_feedback(annotated, self.last_result)
                  except Exception:
-                     pass'''
+                     pass
 
             self._show_frame(annotated)
 

@@ -2,7 +2,7 @@ import cv2
 import numpy as np
 import ncnn
 
-def run_yolo(net, frame_bgr, imgsz=1280, conf_thresh=0.50, iou_thresh=0.45):
+def run_yolo(net, frame_bgr, imgsz=640, conf_thresh=0.50, iou_thresh=0.45):
     h0, w0 = frame_bgr.shape[:2]
 
     # Letterbox resize to imgsz x imgsz
@@ -104,7 +104,7 @@ def run_yolo(net, frame_bgr, imgsz=1280, conf_thresh=0.50, iou_thresh=0.45):
     return np.array(final)
 
 
-def detect_kernel_contours(frame_bgr, target_size=1280):
+def detect_kernel_contours(frame_bgr, target_size=640):
     """
     Detect peanut kernels on a tray with holes.
     Works on any resolution by first resizing to target_size.
@@ -139,9 +139,9 @@ def detect_kernel_contours(frame_bgr, target_size=1280):
     # Prepare to store valid kernel boxes (in resized coordinates)
     resized_boxes = []
 
-    # Thresholds tuned for 1280 image
-    min_area = 1600
-    max_area = 12000
+    # Thresholds tuned for 640 image
+    min_area = 400
+    max_area = 3000
 
     for c in contours:
         area = cv2.contourArea(c)
