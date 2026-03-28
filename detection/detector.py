@@ -30,7 +30,7 @@ class PeanutDetector:
         self.num_classes = len(self.class_names)
 
 
-    def predict(self, frame_bgr, conf=0.5, imgsz=640):
+    def predict(self, frame_bgr, conf=0.05, imgsz=640):
         results = self.model(frame_bgr, conf=conf, imgsz=imgsz, verbose=False)
         if not results or len(results[0].boxes) == 0:
             return DetectionResult(np.empty((0, 6)), self.class_names)

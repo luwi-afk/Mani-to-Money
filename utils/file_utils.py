@@ -28,24 +28,29 @@ def resource_path(relative: str):
     p = project_path(relative)
     return p if os.path.exists(p) else None
 
-def pretty_scan_name(filename: str) -> str:
+def pretty_scan_name(filename):
     """
-    Convert scan_YYYYMMDD_HHMMSS.pdf
-    -> YYYY-MM-DD  HH:MM:SS
-
-    Falls back to filename if format is unexpected.
+    Convert filename to a human-readable name.
+    New format: Scan_mm-dd-yyyy-0000.pdf -> "Scan mm-dd-yyyy-0000"
+    Old format: scan_20250328_123456.pdf -> "Scan 03-28-2025 12:34:56"
+    Otherwise, return filename without extension.
     """
-    base = os.path.basename(filename)
-    name, _ = os.path.splitext(base)
+    name, _ = os.path.splitext(filename)
 
-    parts = name.split("_")
-    if len(parts) >= 3 and parts[0] == "scan":
-        ymd = parts[1]
-        hms = parts[2]
+    if name.startswith("Scan_"):
+        # New ID-based name
+        return name.replace('_', ' ')
+    elif name.startswith("scan_"):
+        # Old timestamp-based name: scan_YYYYMMDD_HHMMSS
         try:
-            dt = datetime.strptime(ymd + hms, "%Y%m%d%H%M%S")
-            return dt.strftime("%Y-%m-%d  %H:%M:%S")
-        except Exception:
+            parts = name.split('_')
+            if len(parts) >= 3:
+                date_part = parts[1]  # YYYYMMDD
+                time_part = parts[2]  # HHMMSS
+                dt = datetime.strptime(date_part + time_part, "%Y%m%d%H%M%S")
+                return f"Scan {dt.strftime('%m-%d-%Y %H:%M:%S')}"
+        except:
             pass
-
-    return filename
+        return name
+    else:
+        return name

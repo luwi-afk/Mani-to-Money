@@ -211,7 +211,8 @@ def print_ticket(
         tray_grade,
         price_per_kg,
         max_price_per_kg,
-        pdf_path=None
+        pdf_path=None,
+        scan_id=None,
 ):
     """
     Print formatted receipt to thermal printer.
@@ -248,6 +249,7 @@ def print_ticket(
 
         # ================= DATE & TIME =================
         printer.write(ALIGN_LEFT)
+        printer.write(safe_encode(f"Scan ID: {scan_id}", max_chars=PAPER_WIDTH_58MM))  # added
         printer.write(safe_encode(f"Date: {date_str}", max_chars=PAPER_WIDTH_58MM))
         printer.write(safe_encode(f"Time: {time_str}", max_chars=PAPER_WIDTH_58MM))
         feed_lines(printer, 1)

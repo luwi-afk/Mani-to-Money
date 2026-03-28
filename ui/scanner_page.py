@@ -67,7 +67,7 @@ def _draw_kernel_grade_price(frame_bgr, kernel_results, max_price_per_kg=250.0):
     return frame_bgr
 
 # ---------------- Helper function for detection & grading ----------------
-def get_kernel_results_from_frame(frame_bgr, detector, conf=0.50, max_price_per_kg=250.0):
+def get_kernel_results_from_frame(frame_bgr, detector, conf=0.05, max_price_per_kg=250.0):
     """
     Run detection on a frame, map boxes to kernel contours, and compute grades/prices.
     Returns (kernel_results, tray_avg_score, tray_grade, estimated_price_per_kg)
@@ -98,12 +98,11 @@ def get_kernel_results_from_frame(frame_bgr, detector, conf=0.50, max_price_per_
 
 # ---------------- Worker Thread ----------------
 class OfflineScanWorker(QThread):
-    # MODIFIED: Added an extra 'object' for the annotated image
-    finished = pyqtSignal(float, str, float, str, object, object)   # tray_avg, tray_grade, price, pdf_path, kernel_results, image
+    finished = pyqtSignal(float, str, float, str, object, object, str)
     failed = pyqtSignal(str)
 
     def __init__(self, detector, frame_bgr, yolo_result=None,
-                 conf=0.50, max_price_per_kg=250.0):
+                 conf=0.05, max_price_per_kg=250.0):
         super().__init__()
         self.detector = detector
         self.frame_bgr = frame_bgr
@@ -113,35 +112,28 @@ class OfflineScanWorker(QThread):
 
     def run(self):
         try:
-            # Use the helper function
             kernel_results, tray_avg, tray_grade, price = get_kernel_results_from_frame(
                 self.frame_bgr, self.detector, self.conf, self.max_price_per_kg
             )
 
             if not kernel_results:
-                # MODIFIED: Emit with image=None
-                self.finished.emit(0.0, "No Detection", 0.0, "", [], None)
+                self.finished.emit(0.0, "No Detection", 0.0, "", [], None, "")   # empty scan_id
                 return
+
+            # Generate scan ID
+            from utils.scan_id import get_next_scan_id
+            scan_id = get_next_scan_id()
 
             # Draw annotated image
             annotated = _draw_kernel_grade_price(
                 self.frame_bgr.copy(), kernel_results, self.max_price_per_kg
             )
 
-            # Count defects for PDF
-            defect_counts = {}
-            for k in kernel_results or []:
-                for d in k.get("defects", []):
-                    label = str(d.get("label", "")).lower()
-                    if label:
-                        defect_counts[label] = defect_counts.get(label, 0) + 1
-            defect_lines = [f"{label}:{count}" for label, count in defect_counts.items()]
-
-            # Save PDF
+            # Build filename using scan_id (replace spaces with underscores)
             out_dir = project_path("receipts")
             ensure_dir(out_dir)
-            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-            pdf_path = os.path.join(out_dir, f"scan_{ts}.pdf")
+            safe_filename = scan_id.replace(' ', '_') + ".pdf"
+            pdf_path = os.path.join(out_dir, safe_filename)
 
             generate_scan_report(
                 pdf_path=pdf_path,
@@ -150,10 +142,11 @@ class OfflineScanWorker(QThread):
                 tray_grade=tray_grade,
                 price_per_kg=price,
                 kernel_results=kernel_results,
+                scan_id=scan_id,
             )
 
-            # MODIFIED: Emit the annotated image as well
-            self.finished.emit(tray_avg, tray_grade, price, pdf_path, kernel_results, annotated)
+            # Emit with scan_id
+            self.finished.emit(tray_avg, tray_grade, price, pdf_path, kernel_results, annotated, scan_id)
 
         except Exception as e:
             import traceback
@@ -170,7 +163,7 @@ class ScannerPage(QWidget):
 
         self.camera = None
         self.detector = PeanutDetector("models/best.pt")
-        self.conf = 0.50
+        self.conf = 0.05
         self.last_frame_bgr = None
         self.last_result = None
         self._frame_i = 0
@@ -212,15 +205,10 @@ class ScannerPage(QWidget):
         self.video.setStyleSheet("background: transparent;")
         layout.addWidget(self.video, stretch=1)
 
-        # Control panel (checkboxes and scan button)
+        # scan button
         controls = QHBoxLayout()
         controls.setAlignment(Qt.AlignCenter)
 
-        # Live detection checkbox
-        self.live_checkbox = QCheckBox("Live Detection")
-        self.live_checkbox.setStyleSheet("font-size: 14px; font-weight: bold;")
-        self.live_checkbox.toggled.connect(self.toggle_live_detection)
-        controls.addWidget(self.live_checkbox)
 
         # Scan button container
         btn_container = QWidget()
@@ -252,31 +240,6 @@ class ScannerPage(QWidget):
 
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.update_frame)
-
-    # ---------------- Live detection toggling ----------------
-    def toggle_live_detection(self, checked):
-        self.live_detection_enabled = checked
-        if not checked:
-            self.live_result = None   # clear old results when turned off
-        # (No timer start/stop needed; detection is triggered by frame counter)
-
-    def run_live_detection(self):
-        """Runs detection on the latest frame and stores results."""
-        if not self.live_detection_enabled:
-            return
-        if self.last_frame_bgr is None:
-            return
-
-        # Copy the clean frame (detection may be heavy)
-        frame_copy = self.last_frame_bgr.copy()
-        try:
-            # Use helper function to get kernel results
-            kernel_results, _, _, _ = get_kernel_results_from_frame(
-                frame_copy, self.detector, self.conf, get_max_price_per_kg()
-            )
-            self.live_result = kernel_results
-        except Exception as e:
-            print(f"Live detection error: {e}")
 
     # ---------------- Camera ----------------
     def start_camera(self):
@@ -377,27 +340,13 @@ class ScannerPage(QWidget):
             frame = cv2.flip(frame, 1)
             self.last_frame_bgr = frame.copy()
 
-            # Live detection with frame skipping
-            if self.live_detection_enabled:
-                self.frame_counter += 1
-                if self.frame_counter >= self.live_inference_every_n_frames:
-                    self.frame_counter = 0
-                    self.run_live_detection()   # runs detection on the latest frame
-
             self._show_frame(frame)
         except Exception as e:
             print("Camera update error:", e)
 
     def _show_frame(self, frame_bgr):
         try:
-            # If live detection is enabled and we have results, draw them on a copy
-            if self.live_detection_enabled and self.live_result is not None:
-                display_frame = frame_bgr.copy()
-                display_frame = _draw_kernel_grade_price(
-                    display_frame, self.live_result, get_max_price_per_kg()
-                )
-            else:
-                display_frame = frame_bgr
+            display_frame = frame_bgr
 
             rgb = cv2.cvtColor(display_frame, cv2.COLOR_BGR2RGB)
             h, w, ch = rgb.shape
@@ -414,6 +363,7 @@ class ScannerPage(QWidget):
             painter.drawPixmap(x, y, scaled_pix)
             painter.end()
             self.video.setPixmap(final_pix)
+
         except Exception as e:
             print(f"Display error: {e}")
 
@@ -422,13 +372,6 @@ class ScannerPage(QWidget):
         if self.last_frame_bgr is None:
             QMessageBox.warning(self, "Scan", "No camera frame yet. Please wait for camera feed.")
             return
-
-        # Save live detection state and temporarily disable it
-        self._live_was_enabled = self.live_detection_enabled
-        if self._live_was_enabled:
-            self.live_detection_enabled = False  # stop new live detections
-            # Also stop the frame counter from triggering
-            self.frame_counter = 0
 
         self.scan.setEnabled(False)
         self.scan.setText("Scanning...")
@@ -448,12 +391,7 @@ class ScannerPage(QWidget):
         self.worker.failed.connect(self.on_scan_failed)
         self.worker.start()
 
-    def on_scan_done(self, tray_avg, tray_grade, price_per_kg, pdf_path, kernel_results, annotated_image):
-
-        # Restore live detection if it was previously enabled
-        if hasattr(self, '_live_was_enabled') and self._live_was_enabled:
-            self.live_detection_enabled = True
-            self.run_live_detection()
+    def on_scan_done(self, tray_avg, tray_grade, price_per_kg, pdf_path, kernel_results, annotated_image, scan_id):
 
         self.scan.setEnabled(True)
         self.scan.setText("Scan")
@@ -471,16 +409,22 @@ class ScannerPage(QWidget):
             )
             return
 
-        # Count defects and grades
+        # Count defects (each defect type at most once per kernel)
         defect_counts = {}
         class_counts = {}
+        defect_types = {"damage", "shriveled", "broken"}
+
         for k in (kernel_results or []):
             g = k.get("grade", "Unknown")
             class_counts[g] = class_counts.get(g, 0) + 1
+
+            unique_defects = set()
             for d in k.get("defects", []):
                 label = d.get("label", "").lower()
-                if label:
-                    defect_counts[label] = defect_counts.get(label, 0) + 1
+                if label in defect_types:
+                    unique_defects.add(label)
+            for label in unique_defects:
+                defect_counts[label] = defect_counts.get(label, 0) + 1
 
         defect_lines = [f"{k}:{v}" for k, v in defect_counts.items()]
         grade_lines = [f"{k}:{v}" for k, v in class_counts.items()]
@@ -497,7 +441,8 @@ class ScannerPage(QWidget):
                 tray_grade=tray_grade,
                 price_per_kg=price_per_kg,
                 max_price_per_kg=max_price,
-                pdf_path=pdf_path
+                pdf_path=pdf_path,
+                scan_id=scan_id  # pass ID
             )
             if success:
                 self.printer_status_changed.emit("Ready", True)
@@ -511,9 +456,11 @@ class ScannerPage(QWidget):
         now = datetime.now()
         date_str = now.strftime("%Y-%m-%d")
         time_str = now.strftime("%H:%M:%S")
+
         summary_msg = (
             f"✅ SCAN COMPLETE\n"
             f"━━━━━━━━━━━━━━━━\n"
+            f"Scan ID: {scan_id}\n"
             f"Date: {date_str}\n"
             f"Time: {time_str}\n"
             f"━━━━━━━━━━━━━━━━\n"
@@ -535,13 +482,14 @@ class ScannerPage(QWidget):
 
         #Pass the annotated image to the detailed report
         if msg_box.clickedButton() == details_btn:
-            self.show_full_report(date_str, time_str, max_price, defect_lines,
+            self.show_full_report(scan_id, date_str, time_str, max_price, defect_lines,
                                   grade_lines, detected, tray_avg, tray_grade,
                                   price_per_kg, pdf_path, annotated_image)
 
-    def show_full_report(self, date_str, time_str, max_price, defect_lines,
+    def show_full_report(self, scan_id, date_str, time_str, max_price, defect_lines,
                          grade_lines, detected, tray_avg, tray_grade,
                          price_per_kg, pdf_path, annotated_image):
+
         from PyQt5.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QTextEdit, QPushButton, QScrollArea, QWidget
         from PyQt5.QtGui import QPixmap, QImage
 
@@ -603,6 +551,7 @@ class ScannerPage(QWidget):
         <h2>📊 DETAILED SCAN REPORT</h2>
         <hr>
         <table width='100%'>
+            <tr><td><b>Scan ID:</b></td><td>{scan_id}</td></tr>
             <tr><td><b>Date:</b></td><td>{date_str}</td></tr>
             <tr><td><b>Time:</b></td><td>{time_str}</td></tr>
             <tr><td><b>Max Price:</b></td><td>Php{max_price:.2f}/kg</td></tr>

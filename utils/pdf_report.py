@@ -14,6 +14,7 @@ def generate_scan_report(
     tray_grade: str,
     price_per_kg: float,
     kernel_results: list,
+    scan_id: str,
 ):
     """
     annotated_bgr_image: OpenCV BGR image (numpy array)
@@ -38,18 +39,20 @@ def generate_scan_report(
     # ---------- counts ----------
     defect_counts = {}
     class_counts = {}
-
-    defect_counts = {}
-    class_counts = {}
+    defect_types = {"damage", "shriveled", "broken"}
 
     for k in (kernel_results or []):
         g = k.get("grade", "Unknown")
         class_counts[g] = class_counts.get(g, 0) + 1
 
+        # Unique defect labels for this kernel (actual defects only)
+        unique_defects = set()
         for d in k.get("defects", []):
-            label = str(d.get("label", "")).lower()  # use label string
-            if label:
-                defect_counts[label] = defect_counts.get(label, 0) + 1
+            label = str(d.get("label", "")).lower()
+            if label in defect_types:
+                unique_defects.add(label)
+        for label in unique_defects:
+            defect_counts[label] = defect_counts.get(label, 0) + 1
 
     detected = len(kernel_results or [])
 
@@ -63,6 +66,7 @@ def generate_scan_report(
 
     # ---------- scan summary ----------
     story.append(Paragraph("<b>SCAN SUMMARY</b>", styles["Heading2"]))
+    story.append(Paragraph(f"Scan ID: {scan_id}", styles["Normal"]))   # added
     story.append(Paragraph(f"Date: {date_str}", styles["Normal"]))
     story.append(Paragraph(f"Time: {time_str}", styles["Normal"]))
     story.append(Spacer(1, 10))
